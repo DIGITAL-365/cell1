@@ -718,48 +718,40 @@ def get_tutorial_meeting_date_corrected():
     
     return next_tuesday
 
+
+# ---------------------------------------------------------------------------
+# Attendance marking window (Cell app) — Asia/Colombo via app_time
+# OPENS:  Tuesday 6:00 AM
+# CLOSES: Thursday 11:59:59 PM
+# Meeting rows are created by Cell Portal scheduler (not this app).
+# ---------------------------------------------------------------------------
+ATTENDANCE_WINDOW_OPEN_HOUR = 6
+ATTENDANCE_WINDOW_OPEN_MINUTE = 0
+
+
+def calendar_tuesday_on_or_before(d):
+    """ISO week Monday=0..Sunday=6: return the Tuesday on or before date d."""
+    return d - timedelta(days=(d.weekday() - 1) % 7)
+
+
 def get_attendance_meeting_date_corrected():
-    """Get the meeting date for attendance - CORRECTED LOGIC:
-    Tuesday 12:00 AM - 11:59 PM: Show current Tuesday
-    Wednesday 12:00 AM - Monday 11:59 PM: Show same Tuesday (current week)
-    Tuesday 12:00 AM: Switch to new current Tuesday"""
-    now = app_now()
-    today = now.date()
-    
-    # Calculate days until next Tuesday
-    days_until_tuesday = (1 - today.weekday()) % 7
-    
-    if days_until_tuesday == 0:  # Today is Tuesday
-        # If it's Tuesday, always use current Tuesday for attendance
-        attendance_tuesday = today
-    elif days_until_tuesday == 1:  # Today is Monday
-        # If it's Monday, check if it's before midnight (00:00)
-        if now.hour == 0 and now.minute == 0:  # Exactly midnight
-            # At Monday midnight, switch to next Tuesday
-            attendance_tuesday = today + timedelta(days=1)
-        else:
-            # Before Monday midnight, use the same Tuesday from current week
-            attendance_tuesday = today - timedelta(days=6)
-    else:
-        # Wednesday through Sunday, use the same Tuesday from current week
-        # Calculate the most recent Tuesday (current week's Tuesday)
-        if days_until_tuesday == 6:  # Wednesday
-            attendance_tuesday = today - timedelta(days=1)  # Yesterday (Tuesday)
-        elif days_until_tuesday == 5:  # Thursday
-            attendance_tuesday = today - timedelta(days=2)  # 2 days ago (Tuesday)
-        elif days_until_tuesday == 4:  # Friday
-            attendance_tuesday = today - timedelta(days=3)  # 3 days ago (Tuesday)
-        elif days_until_tuesday == 3:  # Saturday
-            attendance_tuesday = today - timedelta(days=4)  # 4 days ago (Tuesday)
-        elif days_until_tuesday == 2:  # Sunday
-            attendance_tuesday = today - timedelta(days=5)  # 5 days ago (Tuesday)
-    
-    return attendance_tuesday
+    """
+    Meeting Tuesday leaders should mark for the current week:
+    the calendar Tuesday on or before today (Asia/Colombo).
+
+    Do NOT use next week's Tuesday while this week's attendance window is open —
+    Portal may already have inserted that row from Wed 17:50 onward.
+    """
+    return calendar_tuesday_on_or_before(app_today())
 
 
 def get_attendance_opening_datetime(meeting_date):
-    """First moment attendance may be marked for meeting_date (Tuesday): Tue 06:00:00 local."""
-    return datetime.combine(meeting_date, time(6, 0, 0), tzinfo=get_app_tz())
+    """First moment attendance may be marked: Tuesday 6:00 AM local (Colombo)."""
+    return datetime.combine(
+        meeting_date,
+        time(ATTENDANCE_WINDOW_OPEN_HOUR, ATTENDANCE_WINDOW_OPEN_MINUTE, 0),
+        tzinfo=get_app_tz(),
+    )
 
 
 def get_attendance_deadline(meeting_date):
@@ -815,7 +807,7 @@ def member_created_within_attendance_window(member_created_at, meeting_date):
 
 def get_attendance_marking_countdown_payload(meeting_date):
     """
-    ISO timestamps for dashboard countdown: marking opens Tue 06:00 local,
+    ISO timestamps for dashboard countdown: marking opens Tuesday 6:00 AM local,
     closes Thursday 23:59:59 local (same as get_attendance_deadline).
     If that window has already ended, rolls forward to the next Tuesday's window
     so the UI always shows an upcoming open/close pair.
@@ -839,7 +831,7 @@ def get_attendance_marking_countdown_payload(meeting_date):
 def can_mark_attendance(meeting_date):
     """
     Check if attendance can be marked for a given meeting date.
-    Window: Tuesday 06:00 through Thursday 23:59:59 local (meeting_date is Tuesday).
+    Window: Tuesday 6:00 AM through Thursday 23:59:59 local (meeting_date is Tuesday).
 
     Args:
         meeting_date: datetime.date object representing the Tuesday meeting date
@@ -852,6 +844,19 @@ def can_mark_attendance(meeting_date):
     deadline = get_attendance_deadline(meeting_date)
     return opens <= now <= deadline
 
+
+def is_next_cycle_attendance_meeting(parsed_date, today=None):
+    """
+    True if meeting is next week's (or later) Tuesday relative to today.
+
+    Portal may insert that row from Wed 17:50; leaders must still mark
+    this week's Tuesday (meeting_date <= today) while the current window is open.
+    """
+    if parsed_date is None:
+        return False
+    today = today or app_today()
+    this_week_tue = calendar_tuesday_on_or_before(today)
+    return parsed_date >= this_week_tue + timedelta(days=7)
 
 def _normalize_meeting_date_iso_from_db(meeting_date_val):
     """Normalize PostgREST date / string to YYYY-MM-DD."""
@@ -896,6 +901,10 @@ def attendance_edit_state(parsed_date, submitted_iso_set):
     """
     Whether this leader may edit attendance for parsed_date (bulk or per-member),
     plus UX hints. submitted_iso_set = set of YYYY-MM-DD with finalized bulk submit.
+
+    Markable meetings must be this week's Tuesday or earlier (date <= today),
+    never the next-cycle Tuesday Portal may create from Wed 17:50.
+    Window: Tuesday 6:00 AM – Thursday 11:59 PM (Asia/Colombo).
     """
     if parsed_date is None:
         return {
@@ -905,7 +914,7 @@ def attendance_edit_state(parsed_date, submitted_iso_set):
         }
     today = app_today()
     iso = parsed_date.isoformat()
-    is_upcoming = parsed_date > today
+    is_upcoming = parsed_date > today or is_next_cycle_attendance_meeting(parsed_date, today)
     submitted = iso in submitted_iso_set
 
     if is_upcoming:
@@ -1794,17 +1803,13 @@ def meeting_dates():
                 except Exception as e:
                     print(f"Error parsing fallback date: {e}")
         
-        # Identify upcoming meeting (latest date) and mark others as recent
+        # Upcoming = future calendar dates only (next-cycle Tuesday from Portal Wed 17:50+).
+        # This week's Tuesday (date <= today) stays in Recent so leaders mark the correct week.
+        today = app_today()
         if meetings:
-            # Sort by date to find the latest
             meetings.sort(key=lambda x: x['date_obj'], reverse=True)
-            # Mark the first one (latest) as upcoming
-            if len(meetings) > 0:
-                meetings[0]['is_upcoming'] = True
-                print(f"DEBUG: Upcoming meeting: {meetings[0]['date']}")
-            # Mark others as recent
-            for meeting in meetings[1:]:
-                meeting['is_upcoming'] = False
+            for meeting in meetings:
+                meeting['is_upcoming'] = bool(meeting.get('date_obj') and meeting['date_obj'] > today)
 
         enrich_meetings_with_attendance_eligibility(meetings, leader_id)
         enrich_meetings_with_attendance_summary(meetings, leader_id)
@@ -1841,16 +1846,11 @@ def meeting_dates():
             except Exception as e:
                 print(f"Error parsing fallback date: {e}")
         
-        # Identify upcoming meeting (latest date) and mark others as recent
+        today = app_today()
         if meetings:
-            # Sort by date to find the latest
             meetings.sort(key=lambda x: x['date_obj'], reverse=True)
-            # Mark the first one (latest) as upcoming
-            if len(meetings) > 0:
-                meetings[0]['is_upcoming'] = True
-            # Mark others as recent
-            for meeting in meetings[1:]:
-                meeting['is_upcoming'] = False
+            for meeting in meetings:
+                meeting['is_upcoming'] = bool(meeting.get('date_obj') and meeting['date_obj'] > today)
 
         enrich_meetings_with_attendance_eligibility(meetings, leader_id)
         enrich_meetings_with_attendance_summary(meetings, leader_id)
