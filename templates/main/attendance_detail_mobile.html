@@ -70,7 +70,7 @@
             <form id="attendanceForm">
                 <div class="members-list">
                     {% for member in members %}
-                    <div class="member-item" data-member-id="{{ member.id }}" data-attendance-choice="{% if attendance_data[member.id].present %}present{% elif attendance_data[member.id].absent %}absent{% else %}unset{% endif %}">
+                    <div class="member-item" data-member-id="{{ member.id }}" data-is-leader="{{ '1' if member.is_leader else '0' }}" data-member-phone="{{ member.phone_number or '' }}" data-member-name="{{ member.name or '' }}" data-attendance-choice="{% if attendance_data[member.id].present %}present{% elif attendance_data[member.id].absent %}absent{% else %}unset{% endif %}">
                         <div class="member-info-section">
                             <div class="member-name">{{ member.name }}{% if member.is_leader %} <span class="leader-self-badge">(You)</span>{% endif %}</div>
                             {% if member.id %}
@@ -1153,6 +1153,45 @@ function postVisitorCountMobile(meetingDate) {
     }).catch(function() { return null; });
 }
 
+const LEADER_PHONE = {{ (leader_phone or '')|tojson }};
+const LEADER_NAME = {{ (leader_name or '')|tojson }};
+const LEADER_ONLY_PRESENT_MSG = 'At least one cell member (not only yourself) must be Present for this meeting to count, or mark everyone Absent.';
+
+function phoneDigitsAttendance(value) {
+    return String(value || '').replace(/\D/g, '');
+}
+
+function phonesMatchAttendance(a, b) {
+    const da = phoneDigitsAttendance(a);
+    const db = phoneDigitsAttendance(b);
+    if (!da || !db) return false;
+    if (da === db) return true;
+    return da.length >= 9 && db.length >= 9 && da.slice(-9) === db.slice(-9);
+}
+
+function isLeaderSelfCard(card) {
+    if (!card) return false;
+    if (card.dataset.isLeader === '1') return true;
+    const mPhone = card.dataset.memberPhone || '';
+    if (phonesMatchAttendance(mPhone, LEADER_PHONE)) return true;
+    if (phoneDigitsAttendance(mPhone) && phoneDigitsAttendance(LEADER_PHONE)) return false;
+    const mName = String(card.dataset.memberName || '').trim().toLowerCase();
+    const lName = String(LEADER_NAME || '').trim().toLowerCase();
+    return Boolean(mName && lName && mName === lName);
+}
+
+function isAttendanceSaveAllowedForCards(cards) {
+    let presentCount = 0;
+    let nonLeaderPresent = 0;
+    cards.forEach(function(card) {
+        if (card.dataset.attendanceChoice !== 'present') return;
+        presentCount += 1;
+        if (!isLeaderSelfCard(card)) nonLeaderPresent += 1;
+    });
+    if (presentCount === 0) return true;
+    return nonLeaderPresent >= 1;
+}
+
 // Show confirmation modal
 window.submitAttendance = function() {
     {% if not can_mark_attendance %}
@@ -1163,7 +1202,8 @@ window.submitAttendance = function() {
     let presentCount = 0;
     let absentCount = 0;
     let unset = 0;
-    document.querySelectorAll('.member-item[data-attendance-choice]').forEach(function(item) {
+    const memberItems = document.querySelectorAll('.member-item[data-attendance-choice]');
+    memberItems.forEach(function(item) {
         const c = item.dataset.attendanceChoice;
         if (c === 'present') {
             presentCount += 1;
@@ -1175,6 +1215,10 @@ window.submitAttendance = function() {
     });
     if (unset > 0) {
         showFeedback('Choose present or absent for every member before submitting.', 'error');
+        return;
+    }
+    if (!isAttendanceSaveAllowedForCards(memberItems)) {
+        showFeedback(LEADER_ONLY_PRESENT_MSG, 'error');
         return;
     }
     
@@ -1242,6 +1286,12 @@ window.confirmSubmit = function() {
         const expectedRows = document.querySelectorAll('.member-item[data-attendance-choice]').length;
         if (attendance.length !== expectedRows || expectedRows === 0) {
             showFeedback('Choose present or absent for every member before submitting.', 'error');
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fas fa-check"></i><span>Yes, Submit</span>';
+            return;
+        }
+        if (!isAttendanceSaveAllowedForCards(memberItems)) {
+            showFeedback(LEADER_ONLY_PRESENT_MSG, 'error');
             confirmBtn.disabled = false;
             confirmBtn.innerHTML = '<i class="fas fa-check"></i><span>Yes, Submit</span>';
             return;

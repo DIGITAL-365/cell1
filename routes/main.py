@@ -17,6 +17,10 @@ from utils.tutorials_access import (
     usable_custom_tutorial_title,
 )
 from utils.app_time import app_now, app_today, get_app_tz
+from utils.attendance_leader_self import (
+    LEADER_ONLY_PRESENT_MESSAGE,
+    attendance_save_allowed,
+)
 # Load environment variables
 load_dotenv()
 # Supabase configuration
@@ -980,13 +984,13 @@ def attendance_edit_denied_message(parsed_date, submitted_iso_set):
     )
 
 
-def get_attendance_eligible_member_id_strings(leader_id, parsed_date, meeting_date_formatted):
+def get_attendance_eligible_members(leader_id, parsed_date, meeting_date_formatted):
     """
-    Member id strings that must be included in a bulk attendance submit
+    Eligible cell_members rows for a bulk attendance submit
     (same scope as attendance_detail member list).
     """
     if not supabase or not leader_id or not meeting_date_formatted:
-        return set()
+        return []
     query = supabase.table('cell_members').select('*').eq('leader_id', leader_id)
     if parsed_date:
         # Use end-of-window (Thursday 23:59:59) timestamp, not a bare date, so
@@ -999,12 +1003,49 @@ def get_attendance_eligible_member_id_strings(leader_id, parsed_date, meeting_da
             member for member in members
             if member_created_within_attendance_window(member.get('created_at'), parsed_date)
         ]
+    return members
+
+
+def get_attendance_eligible_member_id_strings(leader_id, parsed_date, meeting_date_formatted):
+    """
+    Member id strings that must be included in a bulk attendance submit
+    (same scope as attendance_detail member list).
+    """
     out = set()
-    for m in members:
+    for m in get_attendance_eligible_members(leader_id, parsed_date, meeting_date_formatted):
         mid = m.get('id')
         if mid is not None:
             out.add(str(mid))
     return out
+
+
+def get_cell_leader_identity(leader_id):
+    """Return (phone, name) for the cell leader user row. Used for leader-self matching."""
+    phone = None
+    name = None
+    if not supabase or not leader_id:
+        return phone, name
+    try:
+        u_res = (
+            supabase.table('users')
+            .select('name, phone_number')
+            .eq('id', leader_id)
+            .limit(1)
+            .execute()
+        )
+        if u_res.data and len(u_res.data) > 0:
+            row = u_res.data[0] or {}
+            phone = row.get('phone_number')
+            name = row.get('name')
+    except Exception as e:
+        print(f"get_cell_leader_identity failed for {leader_id}: {e}")
+    # Session fallbacks (leader login stores local mobile; deputy has different identity)
+    if 'user' in session and not session['user'].get('is_deputy'):
+        if not phone:
+            phone = session['user'].get('mobile')
+        if not name:
+            name = session['user'].get('name')
+    return phone, name
 
 
 def record_attendance_week_submitted(leader_id, meeting_date_iso, submitted_by_user_id=None):
@@ -2012,6 +2053,8 @@ def attendance_detail(meeting_date):
                 visitor_count_total = int(visitor_attendance.get('visitor_count') or 0)
             except (TypeError, ValueError):
                 visitor_count_total = 0
+
+        leader_phone, leader_name = get_cell_leader_identity(leader_id)
         
         template_name = f'main/attendance_detail{get_template_suffix()}.html'
         return render_template(template_name, 
@@ -2030,6 +2073,8 @@ def attendance_detail(meeting_date):
                              visitor_count_total=visitor_count_total,
                              reminder_info=reminder_info,
                              leader_id=leader_id,
+                             leader_phone=leader_phone or '',
+                             leader_name=leader_name or '',
                              visitor_attendance=visitor_attendance,
                              visitor_saved_time_label=visitor_saved_time_label,
                              can_edit_visitor_count=bool(can_mark and not session['user'].get('is_deputy')))
@@ -2244,9 +2289,17 @@ def bulk_update_attendance(meeting_date):
         if meeting_number is None:
             return jsonify({'success': False, 'message': 'Meeting not found. Cannot mark attendance.'}), 400
 
-        expected_ids = get_attendance_eligible_member_id_strings(
+        expected_members = get_attendance_eligible_members(
             leader_id, parsed_date, meeting_date_formatted
         )
+        expected_ids = set()
+        members_by_id = {}
+        for m in expected_members:
+            mid = m.get('id')
+            if mid is not None:
+                sid = str(mid)
+                expected_ids.add(sid)
+                members_by_id[sid] = m
         if not expected_ids:
             return jsonify({'success': False, 'message': 'No members to mark for this meeting.'}), 400
 
@@ -2271,6 +2324,18 @@ def bulk_update_attendance(meeting_date):
             return jsonify({
                 'success': False,
                 'message': 'Mark every member as present or absent before submitting.',
+            }), 400
+
+        leader_phone, leader_name = get_cell_leader_identity(leader_id)
+        validation_rows = []
+        for sid, status in payload_by_id.items():
+            member = dict(members_by_id.get(sid) or {})
+            member['status'] = status
+            validation_rows.append(member)
+        if not attendance_save_allowed(validation_rows, leader_phone, leader_name):
+            return jsonify({
+                'success': False,
+                'message': LEADER_ONLY_PRESENT_MESSAGE,
             }), 400
 
         # Process each attendance record (validated set matches eligible members)

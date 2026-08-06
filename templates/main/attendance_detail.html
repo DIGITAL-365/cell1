@@ -76,7 +76,7 @@
         {% if members %}
             <div class="mobile-members-list">
                 {% for member in members %}
-                <div class="mobile-member-card {% if attendance_data[member.id].present %}status-present{% elif attendance_data[member.id].absent %}status-absent{% else %}status-pending{% endif %}" data-member-id="{{ member.id }}" data-attendance-choice="{% if attendance_data[member.id].present %}present{% elif attendance_data[member.id].absent %}absent{% else %}unset{% endif %}">
+                <div class="mobile-member-card {% if attendance_data[member.id].present %}status-present{% elif attendance_data[member.id].absent %}status-absent{% else %}status-pending{% endif %}" data-member-id="{{ member.id }}" data-is-leader="{{ '1' if member.is_leader else '0' }}" data-member-phone="{{ member.phone_number or '' }}" data-member-name="{{ member.name or '' }}" data-attendance-choice="{% if attendance_data[member.id].present %}present{% elif attendance_data[member.id].absent %}absent{% else %}unset{% endif %}">
                     <div class="member-info">
                         <div class="member-avatar-mobile">
                             <span class="avatar-text">{{ member.name[0].upper() }}</span>
@@ -878,7 +878,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <form id="attendanceFormDesktop">
                 <div class="desktop-members-grid">
                     {% for member in members %}
-                    <div class="desktop-member-card" data-member-id="{{ member.id }}" data-attendance-choice="{% if attendance_data[member.id].present %}present{% elif attendance_data[member.id].absent %}absent{% else %}unset{% endif %}">
+                    <div class="desktop-member-card" data-member-id="{{ member.id }}" data-is-leader="{{ '1' if member.is_leader else '0' }}" data-member-phone="{{ member.phone_number or '' }}" data-member-name="{{ member.name or '' }}" data-attendance-choice="{% if attendance_data[member.id].present %}present{% elif attendance_data[member.id].absent %}absent{% else %}unset{% endif %}">
                         <div class="member-header-desktop">
                             <div class="member-avatar-desktop">
                                 <span class="avatar-text-desktop">{{ member.name[0].upper() }}</span>
@@ -1826,6 +1826,45 @@ window.getVisitorCountInputForAttendanceDetail = function() {
     return document.getElementById('visitorCountInputMobile') || document.getElementById('visitorCountInputDesktop');
 };
 
+const LEADER_PHONE = {{ (leader_phone or '')|tojson }};
+const LEADER_NAME = {{ (leader_name or '')|tojson }};
+const LEADER_ONLY_PRESENT_MSG = 'At least one cell member (not only yourself) must be Present for this meeting to count, or mark everyone Absent.';
+
+function phoneDigitsAttendance(value) {
+    return String(value || '').replace(/\D/g, '');
+}
+
+function phonesMatchAttendance(a, b) {
+    const da = phoneDigitsAttendance(a);
+    const db = phoneDigitsAttendance(b);
+    if (!da || !db) return false;
+    if (da === db) return true;
+    return da.length >= 9 && db.length >= 9 && da.slice(-9) === db.slice(-9);
+}
+
+function isLeaderSelfCard(card) {
+    if (!card) return false;
+    if (card.dataset.isLeader === '1') return true;
+    const mPhone = card.dataset.memberPhone || '';
+    if (phonesMatchAttendance(mPhone, LEADER_PHONE)) return true;
+    if (phoneDigitsAttendance(mPhone) && phoneDigitsAttendance(LEADER_PHONE)) return false;
+    const mName = String(card.dataset.memberName || '').trim().toLowerCase();
+    const lName = String(LEADER_NAME || '').trim().toLowerCase();
+    return Boolean(mName && lName && mName === lName);
+}
+
+function isAttendanceSaveAllowedForCards(cards) {
+    let presentCount = 0;
+    let nonLeaderPresent = 0;
+    cards.forEach(function(card) {
+        if (card.dataset.attendanceChoice !== 'present') return;
+        presentCount += 1;
+        if (!isLeaderSelfCard(card)) nonLeaderPresent += 1;
+    });
+    if (presentCount === 0) return true;
+    return nonLeaderPresent >= 1;
+}
+
 // Show confirmation modal
 window.submitAttendanceDesktop = function() {
     const attendanceContainer = document.querySelector('.desktop-attendance-container');
@@ -1837,7 +1876,8 @@ window.submitAttendanceDesktop = function() {
     let presentCount = 0;
     let absentCount = 0;
     let unset = 0;
-    document.querySelectorAll('.desktop-member-card[data-attendance-choice]').forEach(function(card) {
+    const desktopCards = document.querySelectorAll('.desktop-member-card[data-attendance-choice]');
+    desktopCards.forEach(function(card) {
         const c = card.dataset.attendanceChoice;
         if (c === 'present') {
             presentCount += 1;
@@ -1849,6 +1889,10 @@ window.submitAttendanceDesktop = function() {
     });
     if (unset > 0) {
         showFeedbackDesktop('Choose present or absent for every member before submitting.', 'error');
+        return;
+    }
+    if (!isAttendanceSaveAllowedForCards(desktopCards)) {
+        showFeedbackDesktop(LEADER_ONLY_PRESENT_MSG, 'error');
         return;
     }
     
@@ -1942,6 +1986,12 @@ window.confirmSubmitDesktop = function() {
         const expectedRows = document.querySelectorAll('.desktop-member-card[data-attendance-choice]').length;
         if (attendance.length !== expectedRows || expectedRows === 0) {
             showFeedbackDesktop('Choose present or absent for every member before submitting.', 'error');
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fas fa-check"></i><span>Yes, Submit</span>';
+            return;
+        }
+        if (!isAttendanceSaveAllowedForCards(desktopCards)) {
+            showFeedbackDesktop(LEADER_ONLY_PRESENT_MSG, 'error');
             confirmBtn.disabled = false;
             confirmBtn.innerHTML = '<i class="fas fa-check"></i><span>Yes, Submit</span>';
             return;
