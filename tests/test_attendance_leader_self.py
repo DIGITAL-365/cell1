@@ -1,13 +1,20 @@
 """Unit tests for leader-self attendance save validation."""
 
+import os
 import unittest
+from unittest import mock
 
 from utils.attendance_leader_self import (
     LEADER_ONLY_PRESENT_MESSAGE,
+    LEADER_ONLY_PRESENT_WARNING,
     attendance_save_allowed,
+    cell_is_operated,
+    hard_block_only_leader_present_enabled,
     is_leader_self_member,
+    only_leader_present,
     phone_digits,
     phones_match,
+    present_count_for_operated_totals,
 )
 
 
@@ -102,32 +109,59 @@ class AttendanceSaveAllowedTests(unittest.TestCase):
                 out.append(spec)
         return out
 
-    def test_only_leader_present_blocked(self):
+    def test_soft_default_allows_only_leader_present(self):
         rows = self._rows((True, 'present'), (False, 'absent'))
-        self.assertFalse(
-            attendance_save_allowed(rows, self.leader_phone, self.leader_name)
-        )
+        with mock.patch.dict(os.environ, {'ATTENDANCE_HARD_BLOCK_LEADER_ONLY': ''}, clear=False):
+            self.assertTrue(
+                attendance_save_allowed(rows, self.leader_phone, self.leader_name)
+            )
+
+    def test_hard_flag_blocks_only_leader_present(self):
+        rows = self._rows((True, 'present'), (False, 'absent'))
+        with mock.patch.dict(os.environ, {'ATTENDANCE_HARD_BLOCK_LEADER_ONLY': '1'}, clear=False):
+            self.assertTrue(hard_block_only_leader_present_enabled())
+            self.assertFalse(
+                attendance_save_allowed(rows, self.leader_phone, self.leader_name)
+            )
 
     def test_leader_absent_guest_present_allowed(self):
         rows = self._rows((True, 'absent'), (False, 'present'))
         self.assertTrue(
             attendance_save_allowed(rows, self.leader_phone, self.leader_name)
         )
+        self.assertTrue(cell_is_operated(rows, self.leader_phone, self.leader_name))
 
     def test_leader_and_guest_present_allowed(self):
         rows = self._rows((True, 'present'), (False, 'present'))
         self.assertTrue(
             attendance_save_allowed(rows, self.leader_phone, self.leader_name)
         )
+        self.assertTrue(cell_is_operated(rows, self.leader_phone, self.leader_name))
 
     def test_everyone_absent_allowed(self):
         rows = self._rows((True, 'absent'), (False, 'absent'))
         self.assertTrue(
             attendance_save_allowed(rows, self.leader_phone, self.leader_name)
         )
+        self.assertFalse(cell_is_operated(rows, self.leader_phone, self.leader_name))
 
-    def test_phone_matched_leader_only_present_blocked(self):
-        # No is_leader flag; identified by phone
+    def test_only_leader_present_not_operated(self):
+        rows = self._rows((True, 'present'), (False, 'absent'))
+        self.assertTrue(only_leader_present(rows, self.leader_phone, self.leader_name))
+        self.assertFalse(cell_is_operated(rows, self.leader_phone, self.leader_name))
+        self.assertEqual(
+            present_count_for_operated_totals(rows, self.leader_phone, self.leader_name),
+            0,
+        )
+
+    def test_operated_present_count_includes_leader_when_members_present(self):
+        rows = self._rows((True, 'present'), (False, 'present'))
+        self.assertEqual(
+            present_count_for_operated_totals(rows, self.leader_phone, self.leader_name),
+            2,
+        )
+
+    def test_phone_matched_leader_only_present_not_operated(self):
         rows = [
             {
                 'is_leader': False,
@@ -142,13 +176,12 @@ class AttendanceSaveAllowedTests(unittest.TestCase):
                 'status': 'absent',
             },
         ]
-        self.assertFalse(
-            attendance_save_allowed(rows, self.leader_phone, self.leader_name)
-        )
+        self.assertTrue(only_leader_present(rows, self.leader_phone, self.leader_name))
+        self.assertFalse(cell_is_operated(rows, self.leader_phone, self.leader_name))
 
-    def test_message_constant(self):
-        self.assertIn('not only yourself', LEADER_ONLY_PRESENT_MESSAGE)
-        self.assertIn('everyone Absent', LEADER_ONLY_PRESENT_MESSAGE)
+    def test_message_constants(self):
+        self.assertIn('not count as cell operated', LEADER_ONLY_PRESENT_WARNING)
+        self.assertIn('count as operated', LEADER_ONLY_PRESENT_MESSAGE)
 
 
 if __name__ == '__main__':

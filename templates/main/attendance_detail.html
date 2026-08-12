@@ -1007,6 +1007,9 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <div class="modal-body-desktop">
                 <p>Are you sure you want to submit the attendance for this meeting?</p>
+                <div id="leaderOnlyPresentWarningDesktop" class="leader-only-warning" style="display: none;" role="alert">
+                    Only you are Present. This will not count as cell operated.
+                </div>
                 <div class="attendance-summary-desktop">
                     <div class="summary-item-desktop">
                         <span class="summary-label-desktop">Present:</span>
@@ -1515,6 +1518,17 @@ document.addEventListener('DOMContentLoaded', function() {
     line-height: 1.5;
 }
 
+.leader-only-warning {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    color: #fbbf24;
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    margin: 0 0 1rem 0;
+    font-size: 0.95rem;
+    line-height: 1.4;
+}
+
 .attendance-summary-desktop {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1828,7 +1842,7 @@ window.getVisitorCountInputForAttendanceDetail = function() {
 
 const LEADER_PHONE = {{ (leader_phone or '')|tojson }};
 const LEADER_NAME = {{ (leader_name or '')|tojson }};
-const LEADER_ONLY_PRESENT_MSG = 'At least one cell member (not only yourself) must be Present for this meeting to count, or mark everyone Absent.';
+const LEADER_ONLY_PRESENT_WARNING = 'Only you are Present. This will not count as cell operated.';
 
 function phoneDigitsAttendance(value) {
     return String(value || '').replace(/\D/g, '');
@@ -1853,7 +1867,8 @@ function isLeaderSelfCard(card) {
     return Boolean(mName && lName && mName === lName);
 }
 
-function isAttendanceSaveAllowedForCards(cards) {
+/** True when ≥1 Present and every Present is leader-self (not operated). */
+function isOnlyLeaderPresentForCards(cards) {
     let presentCount = 0;
     let nonLeaderPresent = 0;
     cards.forEach(function(card) {
@@ -1861,8 +1876,7 @@ function isAttendanceSaveAllowedForCards(cards) {
         presentCount += 1;
         if (!isLeaderSelfCard(card)) nonLeaderPresent += 1;
     });
-    if (presentCount === 0) return true;
-    return nonLeaderPresent >= 1;
+    return presentCount > 0 && nonLeaderPresent === 0;
 }
 
 // Show confirmation modal
@@ -1891,9 +1905,15 @@ window.submitAttendanceDesktop = function() {
         showFeedbackDesktop('Choose present or absent for every member before submitting.', 'error');
         return;
     }
-    if (!isAttendanceSaveAllowedForCards(desktopCards)) {
-        showFeedbackDesktop(LEADER_ONLY_PRESENT_MSG, 'error');
-        return;
+
+    const warnEl = document.getElementById('leaderOnlyPresentWarningDesktop');
+    if (warnEl) {
+        if (isOnlyLeaderPresentForCards(desktopCards)) {
+            warnEl.textContent = LEADER_ONLY_PRESENT_WARNING;
+            warnEl.style.display = 'block';
+        } else {
+            warnEl.style.display = 'none';
+        }
     }
     
     document.getElementById('confirmPresentCountDesktop').textContent = presentCount;
@@ -1986,12 +2006,6 @@ window.confirmSubmitDesktop = function() {
         const expectedRows = document.querySelectorAll('.desktop-member-card[data-attendance-choice]').length;
         if (attendance.length !== expectedRows || expectedRows === 0) {
             showFeedbackDesktop('Choose present or absent for every member before submitting.', 'error');
-            confirmBtn.disabled = false;
-            confirmBtn.innerHTML = '<i class="fas fa-check"></i><span>Yes, Submit</span>';
-            return;
-        }
-        if (!isAttendanceSaveAllowedForCards(desktopCards)) {
-            showFeedbackDesktop(LEADER_ONLY_PRESENT_MSG, 'error');
             confirmBtn.disabled = false;
             confirmBtn.innerHTML = '<i class="fas fa-check"></i><span>Yes, Submit</span>';
             return;

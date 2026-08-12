@@ -20,6 +20,8 @@ from utils.app_time import app_now, app_today, get_app_tz
 from utils.attendance_leader_self import (
     LEADER_ONLY_PRESENT_MESSAGE,
     attendance_save_allowed,
+    cell_is_operated,
+    present_count_for_operated_totals,
 )
 # Load environment variables
 load_dotenv()
@@ -1105,8 +1107,9 @@ def enrich_meetings_with_attendance_eligibility(meetings, leader_id):
 
 def enrich_meetings_with_attendance_summary(meetings, leader_id):
     """
-    Add present_count, absent_count and visitor_count per meeting so cards can
-    show a submitted-attendance summary. Batched to avoid per-meeting queries.
+    Add present_count, absent_count, visitor_count and is_operated per meeting.
+    Operated = ≥1 real (non-leader-self) member Present. Leader-only Present
+    does not inflate present_count used for operated totals.
     """
     if not meetings:
         return
@@ -1114,6 +1117,7 @@ def enrich_meetings_with_attendance_summary(meetings, leader_id):
         m.setdefault('present_count', 0)
         m.setdefault('absent_count', 0)
         m.setdefault('visitor_count', 0)
+        m.setdefault('is_operated', False)
         m.setdefault('has_attendance_summary', False)
     if not supabase or not leader_id:
         return
@@ -1122,12 +1126,28 @@ def enrich_meetings_with_attendance_summary(meetings, leader_id):
     if not isos:
         return
 
-    present_by = {}
+    leader_phone, leader_name = get_cell_leader_identity(leader_id)
+    members_by_id = {}
+    try:
+        mem_res = (
+            supabase.table('cell_members')
+            .select('id,is_leader,phone_number,name')
+            .eq('leader_id', str(leader_id))
+            .execute()
+        )
+        for mem in mem_res.data or []:
+            mid = mem.get('id')
+            if mid is not None:
+                members_by_id[str(mid)] = mem
+    except Exception as e:
+        print(f"enrich_meetings_with_attendance_summary members: {e}")
+
+    rows_by_iso = {}
     absent_by = {}
     try:
         att_res = (
             supabase.table('attendance')
-            .select('meeting_date,status')
+            .select('meeting_date,status,member_id')
             .eq('leader_id', str(leader_id))
             .in_('meeting_date', isos)
             .execute()
@@ -1137,9 +1157,11 @@ def enrich_meetings_with_attendance_summary(meetings, leader_id):
             if not iso:
                 continue
             status = row.get('status')
-            if status == 'present':
-                present_by[iso] = present_by.get(iso, 0) + 1
-            elif status == 'absent':
+            mid = row.get('member_id')
+            member = dict(members_by_id.get(str(mid)) or {})
+            member['status'] = status
+            rows_by_iso.setdefault(iso, []).append(member)
+            if status == 'absent':
                 absent_by[iso] = absent_by.get(iso, 0) + 1
     except Exception as e:
         print(f"enrich_meetings_with_attendance_summary attendance: {e}")
@@ -1168,13 +1190,16 @@ def enrich_meetings_with_attendance_summary(meetings, leader_id):
         iso = m.get('date_iso')
         if not iso:
             continue
-        m['present_count'] = present_by.get(iso, 0)
+        rows = rows_by_iso.get(iso) or []
+        m['present_count'] = present_count_for_operated_totals(
+            rows, leader_phone, leader_name
+        )
         m['absent_count'] = absent_by.get(iso, 0)
         m['visitor_count'] = visitor_by.get(iso, 0)
+        m['is_operated'] = cell_is_operated(rows, leader_phone, leader_name)
         m['has_attendance_summary'] = (
             bool(m.get('attendance_submitted'))
-            or iso in present_by
-            or iso in absent_by
+            or bool(rows)
             or iso in visitor_by
         )
 
@@ -1910,6 +1935,13 @@ def attendance_detail(meeting_date):
     try:
         # Get leader ID - use user ID directly
         leader_id = get_effective_leader_id()
+
+        # Soft safety net: create leader self-row if missing so (You) appears.
+        # Never fail the page if insert fails (same soft policy as login).
+        try:
+            ensure_leader_self_member_row(leader_id)
+        except Exception as ensure_err:
+            print(f"ensure_leader_self_member_row on attendance_detail skipped: {ensure_err}")
         
         # Convert meeting_date string to proper date format
         from datetime import datetime
@@ -2332,6 +2364,7 @@ def bulk_update_attendance(meeting_date):
             member = dict(members_by_id.get(sid) or {})
             member['status'] = status
             validation_rows.append(member)
+        # Soft default: allow only-leader Present (UI warns). Hard block only if flag set.
         if not attendance_save_allowed(validation_rows, leader_phone, leader_name):
             return jsonify({
                 'success': False,
@@ -3499,19 +3532,26 @@ def attendance_list():
                     
                     # Get members eligible for this meeting week (created on or before
                     # the end of the marking window, i.e. that week's Thursday).
-                    meeting_members_query = supabase.table('cell_members').select('id,created_at').eq('leader_id', leader_id)
+                    meeting_members_query = supabase.table('cell_members').select(
+                        'id,created_at,is_leader,phone_number,name'
+                    ).eq('leader_id', leader_id)
                     meeting_members_query = meeting_members_query.lte('created_at', get_member_attendance_cutoff_iso(parsed_date))
                     meeting_members_result = meeting_members_query.execute()
-                    meeting_member_ids = [
-                        member['id'] for member in (meeting_members_result.data or [])
+                    meeting_members = [
+                        member for member in (meeting_members_result.data or [])
                         if member_created_within_attendance_window(member.get('created_at'), parsed_date)
                     ]
+                    meeting_member_ids = [member['id'] for member in meeting_members]
                     meeting_total_members = len(meeting_member_ids)
+                    members_by_id = {
+                        str(m['id']): m for m in meeting_members if m.get('id') is not None
+                    }
                     
                     # Get attendance records for this meeting
                     week_attendance_count = 0
                     present_count = 0
                     absent_count = 0
+                    is_operated = False
                     
                     if meeting_member_ids:
                         week_attendance_result = supabase.table('attendance')\
@@ -3523,13 +3563,22 @@ def attendance_list():
                         
                         week_attendance_count = len(week_attendance_result.data) if week_attendance_result.data else 0
                         
-                        # Count present/absent
+                        validation_rows = []
                         if week_attendance_result.data:
                             for record in week_attendance_result.data:
-                                if record.get('status') == 'present':
-                                    present_count += 1
-                                elif record.get('status') == 'absent':
+                                mid = record.get('member_id')
+                                member = dict(members_by_id.get(str(mid)) or {})
+                                member['status'] = record.get('status')
+                                validation_rows.append(member)
+                                if record.get('status') == 'absent':
                                     absent_count += 1
+                        leader_phone, leader_name = get_cell_leader_identity(leader_id)
+                        present_count = present_count_for_operated_totals(
+                            validation_rows, leader_phone, leader_name
+                        )
+                        is_operated = cell_is_operated(
+                            validation_rows, leader_phone, leader_name
+                        )
                     
                     # Determine status for this meeting
                     if meeting_total_members > 0 and week_attendance_count == meeting_total_members:
@@ -3552,6 +3601,7 @@ def attendance_list():
                         'total': meeting_total_members,
                         'present_count': present_count,
                         'absent_count': absent_count,
+                        'is_operated': is_operated,
                         'is_upcoming': is_upcoming
                     }
                     

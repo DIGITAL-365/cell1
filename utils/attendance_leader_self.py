@@ -1,14 +1,32 @@
 """Identify the leader's own cell_members row and validate attendance saves.
 
-A meeting may be saved when everyone is Absent, or when at least one
-non-leader-self member is Present. Saving with only the leader-self Present
-is blocked (the cell was not really operated).
+Operated = at least one non-leader-self member is Present.
+
+Soft default: only-leader Present may be saved (with a UI warning); it does not
+count as operated. Optional hard block via ATTENDANCE_HARD_BLOCK_LEADER_ONLY=1.
 """
 
-LEADER_ONLY_PRESENT_MESSAGE = (
-    'At least one cell member (not only yourself) must be Present for this '
-    'meeting to count, or mark everyone Absent.'
+import os
+
+LEADER_ONLY_PRESENT_WARNING = (
+    'Only you are Present. This will not count as cell operated.'
 )
+
+# Kept for optional hard-block mode (feature flag).
+LEADER_ONLY_PRESENT_MESSAGE = (
+    'At least one cell member (not yourself) must be Present for this '
+    'meeting to count as operated, or mark everyone Absent.'
+)
+
+
+def hard_block_only_leader_present_enabled():
+    """When true, reject submits where the only Present row(s) are leader-self."""
+    return os.getenv('ATTENDANCE_HARD_BLOCK_LEADER_ONLY', '').strip().lower() in (
+        '1',
+        'true',
+        'yes',
+        'on',
+    )
 
 
 def phone_digits(value):
@@ -53,19 +71,52 @@ def is_leader_self_member(member, leader_phone, leader_name):
     return bool(m_name and l_name and m_name == l_name)
 
 
+def only_leader_present(rows, leader_phone, leader_name):
+    """True when there is at least one Present and every Present is leader-self."""
+    present = [r for r in rows if (r or {}).get('status') == 'present']
+    if not present:
+        return False
+    return all(is_leader_self_member(row, leader_phone, leader_name) for row in present)
+
+
+def cell_is_operated(rows, leader_phone=None, leader_name=None):
+    """
+    Operated when at least one non-leader-self row is Present.
+    If leader_phone/name are omitted, uses is_leader flag only on each row.
+    """
+    for row in rows or []:
+        if (row or {}).get('status') != 'present':
+            continue
+        if leader_phone is not None or leader_name is not None:
+            if not is_leader_self_member(row, leader_phone, leader_name):
+                return True
+        elif row.get('is_leader') is not True:
+            return True
+    return False
+
+
 def attendance_save_allowed(rows, leader_phone, leader_name):
     """
-    rows: iterable of dicts with at least 'status' ('present'|'absent') and
-    member identity fields (is_leader / phone_number / name).
+    Soft default: always allow (caller shows warning for only-leader Present).
+    Hard mode (flag): BLOCK if the only Present row(s) are leader-self;
+    ALLOW if everyone Absent or ≥1 real member Present.
+    """
+    if not hard_block_only_leader_present_enabled():
+        return True
+    if not only_leader_present(rows, leader_phone, leader_name):
+        return True
+    return False
 
-    ALLOW if count(Present among NON-leader-self) >= 1
-    ALLOW if count(Present) == 0 (everyone Absent)
-    BLOCK if the only Present row(s) are leader-self
+
+def present_count_for_operated_totals(rows, leader_phone=None, leader_name=None):
+    """
+    Present count for operated/summary totals:
+    - If cell is operated: count all Present (including leader personal attendance).
+    - If only leader Present (not operated): count 0 so leader-only does not inflate totals.
     """
     present = [r for r in rows if (r or {}).get('status') == 'present']
     if not present:
-        return True
-    for row in present:
-        if not is_leader_self_member(row, leader_phone, leader_name):
-            return True
-    return False
+        return 0
+    if cell_is_operated(rows, leader_phone, leader_name):
+        return len(present)
+    return 0
