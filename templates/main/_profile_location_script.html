@@ -1,0 +1,318 @@
+<script>
+(function () {
+    function ageFromDob(iso) {
+        if (!iso) return '';
+        const dob = new Date(iso + 'T00:00:00');
+        if (Number.isNaN(dob.getTime())) return '';
+        const today = new Date();
+        let age = today.getFullYear() - dob.getFullYear();
+        if (
+            today.getMonth() < dob.getMonth() ||
+            (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())
+        ) {
+            age -= 1;
+        }
+        return age >= 0 ? String(age) : '';
+    }
+
+    function displayValue(value) {
+        const text = (value || '').trim();
+        return text || 'Not filled yet';
+    }
+
+    function bindLeaderProfileLocation() {
+        const form = document.getElementById('leaderLocationForm');
+        if (!form) return;
+
+        const search = document.getElementById('district_search');
+        const hidden = document.getElementById('leader_district');
+        const list = document.getElementById('district_suggestions');
+        const province = document.getElementById('leader_province');
+        const dob = document.getElementById('leader_date_of_birth');
+        const age = document.getElementById('leader_age');
+        const districtError = document.getElementById('districtError');
+        const modal = document.getElementById('locationConfirmModal');
+        const confirmList = document.getElementById('locationConfirmList');
+        const confirmSave = document.getElementById('locationConfirmSave');
+        const confirmCancel = document.getElementById('locationConfirmCancel');
+        const originalEl = document.getElementById('leaderLocationOriginal');
+
+        const items = list ? Array.from(list.querySelectorAll('li[data-district]')) : [];
+        const catalog = items.map(function (li) {
+            return {
+                el: li,
+                district: li.getAttribute('data-district') || '',
+                province: li.getAttribute('data-province') || '',
+            };
+        });
+
+        let original = { address: '', district: '', province: '', date_of_birth: '' };
+        try {
+            original = JSON.parse(originalEl ? originalEl.textContent : '{}') || original;
+        } catch (err) {
+            original = { address: '', district: '', province: '', date_of_birth: '' };
+        }
+
+        let activeIndex = -1;
+        let allowSubmit = false;
+
+        function findDistrict(query) {
+            const q = (query || '').trim().toLowerCase();
+            if (!q) return null;
+            return catalog.find(function (row) {
+                return row.district.toLowerCase() === q;
+            }) || null;
+        }
+
+        function setProvinceFromDistrict(districtName) {
+            const match = findDistrict(districtName);
+            if (province) province.value = match ? match.province : '';
+        }
+
+        function commitDistrict(row) {
+            if (!search || !hidden) return;
+            search.value = row ? row.district : '';
+            hidden.value = row ? row.district : '';
+            setProvinceFromDistrict(hidden.value);
+            hideSuggestions();
+            if (districtError) districtError.hidden = true;
+        }
+
+        function visibleRows() {
+            return catalog.filter(function (row) {
+                return !row.el.hidden;
+            });
+        }
+
+        function setActive(index) {
+            const vis = visibleRows();
+            vis.forEach(function (row) {
+                row.el.classList.remove('is-active');
+            });
+            if (index < 0 || index >= vis.length) {
+                activeIndex = -1;
+                return;
+            }
+            activeIndex = index;
+            vis[index].el.classList.add('is-active');
+            vis[index].el.scrollIntoView({ block: 'nearest' });
+        }
+
+        function showSuggestions() {
+            if (!list || !search) return;
+            const q = (search.value || '').trim().toLowerCase();
+            let shown = 0;
+            catalog.forEach(function (row) {
+                const match = !q || row.district.toLowerCase().indexOf(q) !== -1;
+                row.el.hidden = !match;
+                row.el.classList.remove('is-active');
+                if (match) shown += 1;
+            });
+            list.hidden = shown === 0;
+            search.setAttribute('aria-expanded', shown === 0 ? 'false' : 'true');
+            setActive(shown ? 0 : -1);
+        }
+
+        function hideSuggestions() {
+            if (!list || !search) return;
+            list.hidden = true;
+            search.setAttribute('aria-expanded', 'false');
+            activeIndex = -1;
+        }
+
+        function syncAge() {
+            if (!dob || !age) return;
+            age.value = ageFromDob(dob.value);
+        }
+
+        function currentValues() {
+            return {
+                address: (document.getElementById('leader_address').value || '').trim(),
+                district: (hidden.value || '').trim(),
+                province: (province.value || '').trim(),
+                date_of_birth: (dob && dob.value) || '',
+                age: (age && age.value) || '',
+            };
+        }
+
+        function changedRows() {
+            const now = currentValues();
+            const fields = [
+                { key: 'address', label: 'Address' },
+                { key: 'district', label: 'District' },
+                { key: 'province', label: 'Province' },
+                { key: 'date_of_birth', label: 'Date of birth' },
+            ];
+            const rows = fields.filter(function (field) {
+                return (original[field.key] || '') !== (now[field.key] || '');
+            }).map(function (field) {
+                return {
+                    label: field.label,
+                    from: displayValue(original[field.key]),
+                    to: displayValue(now[field.key]),
+                };
+            });
+            if ((original.date_of_birth || '') !== (now.date_of_birth || '')) {
+                rows.push({
+                    label: 'Age',
+                    from: displayValue(ageFromDob(original.date_of_birth)),
+                    to: displayValue(now.age),
+                });
+            }
+            return rows;
+        }
+
+        function openModal(rows) {
+            if (!modal || !confirmList) return;
+            confirmList.innerHTML = '';
+            rows.forEach(function (row) {
+                const li = document.createElement('li');
+                li.innerHTML =
+                    '<span class="location-confirm-label"></span>' +
+                    '<div class="location-confirm-values">' +
+                    '<span class="location-confirm-old"></span>' +
+                    '<span class="location-confirm-new"></span>' +
+                    '</div>';
+                li.querySelector('.location-confirm-label').textContent = row.label;
+                li.querySelector('.location-confirm-old').textContent = row.from;
+                li.querySelector('.location-confirm-new').textContent = ' → ' + row.to;
+                confirmList.appendChild(li);
+            });
+            modal.hidden = false;
+            if (confirmSave) confirmSave.focus();
+        }
+
+        function closeModal() {
+            if (modal) modal.hidden = true;
+        }
+
+        if (search) {
+            search.addEventListener('focus', function () {
+                if (hidden && hidden.value && findDistrict(search.value)) {
+                    catalog.forEach(function (row) {
+                        row.el.hidden = false;
+                        row.el.classList.remove('is-active');
+                    });
+                    list.hidden = false;
+                    search.setAttribute('aria-expanded', 'true');
+                    setActive(0);
+                } else {
+                    showSuggestions();
+                }
+            });
+            search.addEventListener('input', function () {
+                hidden.value = '';
+                setProvinceFromDistrict('');
+                if (districtError) districtError.hidden = true;
+                const exact = findDistrict(search.value);
+                if (exact) {
+                    hidden.value = exact.district;
+                    setProvinceFromDistrict(exact.district);
+                }
+                showSuggestions();
+            });
+            search.addEventListener('keydown', function (e) {
+                const vis = visibleRows();
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (list.hidden) showSuggestions();
+                    setActive(Math.min(activeIndex + 1, vis.length - 1));
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setActive(Math.max(activeIndex - 1, 0));
+                } else if (e.key === 'Enter') {
+                    if (!list.hidden && activeIndex >= 0 && vis[activeIndex]) {
+                        e.preventDefault();
+                        commitDistrict(vis[activeIndex]);
+                    }
+                } else if (e.key === 'Escape') {
+                    hideSuggestions();
+                }
+            });
+        }
+
+        items.forEach(function (li) {
+            li.addEventListener('mousedown', function (e) {
+                e.preventDefault();
+                commitDistrict({
+                    district: li.getAttribute('data-district'),
+                    province: li.getAttribute('data-province'),
+                });
+            });
+        });
+
+        document.addEventListener('click', function (e) {
+            const box = document.getElementById('districtCombobox');
+            if (box && !box.contains(e.target)) hideSuggestions();
+        });
+
+        if (dob) {
+            dob.addEventListener('change', syncAge);
+            dob.addEventListener('input', syncAge);
+            syncAge();
+        }
+        setProvinceFromDistrict(hidden ? hidden.value : '');
+
+        form.addEventListener('submit', function (e) {
+            if (allowSubmit) return;
+            e.preventDefault();
+
+            const typed = (search.value || '').trim();
+            if (typed) {
+                const exact = findDistrict(typed);
+                if (!exact) {
+                    if (districtError) districtError.hidden = false;
+                    search.focus();
+                    showSuggestions();
+                    return;
+                }
+                commitDistrict(exact);
+            } else {
+                commitDistrict(null);
+            }
+
+            const rows = changedRows();
+            if (!rows.length) {
+                if (confirmList) {
+                    confirmList.innerHTML = '<li><div class="location-confirm-values">No changes to save.</div></li>';
+                }
+                if (modal) modal.hidden = false;
+                if (confirmSave) confirmSave.hidden = true;
+                return;
+            }
+            if (confirmSave) confirmSave.hidden = false;
+            openModal(rows);
+        });
+
+        if (confirmCancel) {
+            confirmCancel.addEventListener('click', function () {
+                if (confirmSave) confirmSave.hidden = false;
+                closeModal();
+            });
+        }
+        if (confirmSave) {
+            confirmSave.addEventListener('click', function () {
+                allowSubmit = true;
+                closeModal();
+                form.submit();
+            });
+        }
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal && !modal.hidden) {
+                if (confirmSave) confirmSave.hidden = false;
+                closeModal();
+            }
+        });
+        if (modal) {
+            modal.addEventListener('click', function (e) {
+                if (e.target === modal) {
+                    if (confirmSave) confirmSave.hidden = false;
+                    closeModal();
+                }
+            });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', bindLeaderProfileLocation);
+})();
+</script>

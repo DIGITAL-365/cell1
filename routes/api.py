@@ -13,6 +13,7 @@ from utils.leaderboard_snapshot_query import (
     SNAPSHOT_TABLE_CANDIDATES,
 )
 from utils.tutorials_access import fetch_tutorials_for_my_cell
+from utils.sri_lanka_districts import DISTRICT_LIST
 
 load_dotenv()
 
@@ -296,6 +297,13 @@ def enrich_leaderboard_items_from_users(items):
 @login_required
 def get_user():
     return jsonify({'success': True, 'user': session['user']})
+
+
+@api_bp.route('/public/districts')
+@login_required
+def public_districts():
+    """Canonical Sri Lanka district → province list (same spellings as the portal)."""
+    return jsonify({'success': True, 'data': DISTRICT_LIST})
 
 
 @api_bp.route('/health')

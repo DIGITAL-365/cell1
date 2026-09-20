@@ -1,0 +1,67 @@
+{% if profile_incomplete %}
+<p class="profile-incomplete-hint">Please add your address, district, and date of birth. Age is calculated from date of birth.</p>
+{% endif %}
+<form method="post" action="{{ url_for('main.profile') }}" class="location-profile-form" id="leaderLocationForm" novalidate>
+    <input type="hidden" name="form_action" value="location">
+    <script type="application/json" id="leaderLocationOriginal">{{ {
+        'address': user.address or '',
+        'district': user.district or '',
+        'province': user.province or '',
+        'date_of_birth': user.date_of_birth or ''
+    }|tojson }}</script>
+
+    <div class="location-form-grid">
+        <div class="location-field location-field--full">
+            <label class="location-label" for="leader_address">Address</label>
+            <textarea id="leader_address" name="address" class="location-input location-textarea" rows="2" maxlength="500" placeholder="Street, town, or village">{{ user.address or '' }}</textarea>
+        </div>
+
+        <div class="location-field">
+            <label class="location-label" for="district_search">District</label>
+            <div class="district-combobox" id="districtCombobox">
+                <input type="text" id="district_search" class="location-input" placeholder="Type to find a district" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="district_suggestions" value="{{ user.district or '' }}">
+                <input type="hidden" name="district" id="leader_district" value="{{ user.district or '' }}">
+                <ul id="district_suggestions" class="district-suggestions" role="listbox" hidden>
+                    {% for d in districts or [] %}
+                    <li role="option" data-district="{{ d.district }}" data-province="{{ d.province }}">
+                        <span class="district-name">{{ d.district }}</span>
+                        <span class="district-province">{{ d.province }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <p class="location-error" id="districtError" hidden>Pick a district from the list.</p>
+        </div>
+
+        <div class="location-field">
+            <label class="location-label" for="leader_province">Province</label>
+            <input type="text" id="leader_province" class="location-input location-input--readonly" value="{{ user.province or '' }}" readonly tabindex="-1" placeholder="Filled from district">
+            <p class="location-hint">Set automatically from district</p>
+        </div>
+
+        <div class="location-field">
+            <label class="location-label" for="leader_date_of_birth">Date of birth</label>
+            <input type="date" id="leader_date_of_birth" name="date_of_birth" class="location-input" value="{{ user.date_of_birth or '' }}" max="{{ today_iso or '' }}">
+        </div>
+
+        <div class="location-field">
+            <label class="location-label" for="leader_age">Age</label>
+            <input type="text" id="leader_age" class="location-input location-input--readonly" value="{{ user.age if user.age is not none else '' }}" readonly tabindex="-1" placeholder="From date of birth">
+            <p class="location-hint">Calculated, not stored</p>
+        </div>
+    </div>
+
+    <button type="submit" class="location-save-btn" id="locationSaveTrigger">Save</button>
+</form>
+
+<div id="locationConfirmModal" class="location-confirm-overlay" hidden>
+    <div class="location-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="locationConfirmTitle">
+        <h3 id="locationConfirmTitle">Confirm changes</h3>
+        <p class="location-confirm-intro">Review the information you are saving.</p>
+        <ul id="locationConfirmList" class="location-confirm-list"></ul>
+        <div class="location-confirm-actions">
+            <button type="button" class="location-confirm-cancel" id="locationConfirmCancel">Cancel</button>
+            <button type="button" class="location-confirm-save" id="locationConfirmSave">Save</button>
+        </div>
+    </div>
+</div>

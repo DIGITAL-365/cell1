@@ -23,6 +23,13 @@ from utils.attendance_leader_self import (
     cell_is_operated,
     present_count_for_operated_totals,
 )
+from utils.sri_lanka_districts import (
+    DISTRICT_LIST,
+    age_from_dob,
+    format_dob_for_input,
+    leader_profile_write_payload,
+    missing_leader_profile_fields,
+)
 # Load environment variables
 load_dotenv()
 # Supabase configuration
@@ -540,6 +547,40 @@ def redirect_deputy_to_attendance():
     if session.get('user', {}).get('is_deputy'):
         return redirect(url_for('main.meeting_dates'))
     return None
+
+
+LEADER_PROFILE_LOCATION_SELECT = 'address,district,province,date_of_birth'
+
+
+def load_leader_location_row(leader_id):
+    """Read leader location/DOB columns from users. Empty dict if missing or columns absent."""
+    if not supabase or not leader_id:
+        return {}
+    try:
+        res = (
+            supabase.table('users')
+            .select(LEADER_PROFILE_LOCATION_SELECT)
+            .eq('id', leader_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            return res.data[0] or {}
+    except Exception as e:
+        print(f"load_leader_location_row failed: {e}")
+    return {}
+
+
+def set_profile_incomplete_flag(leader_id=None, row=None):
+    """Store session['profile_incomplete'] for dashboard banner. Deputies are never prompted."""
+    if session.get('user', {}).get('is_deputy'):
+        session['profile_incomplete'] = False
+        return []
+    if row is None:
+        row = load_leader_location_row(leader_id)
+    missing = missing_leader_profile_fields(row)
+    session['profile_incomplete'] = bool(missing)
+    return missing
 
 
 def pending_flagged_by_member_id(supabase_client, leader_id, member_ids):
@@ -1577,7 +1618,8 @@ def index():
                                  leaderboard_stats=leaderboard_stats,
                                  attendance_reminder=attendance_reminder,
                                  attendance_countdown=attendance_countdown,
-                                 today=today)
+                                 today=today,
+                                 profile_incomplete=bool(set_profile_incomplete_flag(get_effective_leader_id())))
         except Exception as e:
             print(f"Error rendering dashboard template: {e}")
             flash('Error loading dashboard', 'error')
@@ -1594,8 +1636,33 @@ def profile():
 
     if request.method == 'POST':
         if session.get('user', {}).get('is_deputy'):
-            flash('Only the cell leader can update cell category.', 'error')
+            flash('Only the cell leader can update profile details.', 'error')
             return redirect(url_for('main.profile'))
+
+        action = (request.form.get('form_action') or 'cell_category').strip()
+        if action == 'location':
+            try:
+                payload = leader_profile_write_payload(
+                    address=request.form.get('address'),
+                    district=request.form.get('district'),
+                    date_of_birth=request.form.get('date_of_birth'),
+                    today=app_today(),
+                )
+            except ValueError as ve:
+                flash(str(ve), 'error')
+                return redirect(url_for('main.profile'))
+            if not payload:
+                flash('Enter address, district, or date of birth to save.', 'error')
+                return redirect(url_for('main.profile'))
+            try:
+                supabase.table('users').update(payload).eq('id', leader_id).execute()
+                set_profile_incomplete_flag(leader_id)
+                flash('Profile details saved.', 'success')
+            except Exception as e:
+                print(f"Error updating leader location profile: {e}")
+                flash('Could not save profile details.', 'error')
+            return redirect(url_for('main.profile'))
+
         cat = (request.form.get('cell_category') or '').strip()
         allowed = {'youth', 'young adult', 'adult'}
         if cat not in allowed:
@@ -1620,12 +1687,19 @@ def profile():
         role_id = user_data.get('role_id')
         user_data['current_role'] = 'Cell Leader' if role_id == 4 else 'Cell Member'
     
-    # Fetch full user row for age, branch, zone if columns exist
+    # Fetch full user row for location/DOB, branch, zone if columns exist
     try:
         user_row = supabase.table('users').select('*').eq('id', leader_id).limit(1).execute()
         if user_row.data and len(user_row.data) > 0:
             row = user_row.data[0]
-            user_data['age'] = row.get('age')
+            user_data['address'] = row.get('address') or ''
+            user_data['district'] = row.get('district') or ''
+            user_data['province'] = row.get('province') or ''
+            user_data['date_of_birth'] = format_dob_for_input(row.get('date_of_birth'))
+            try:
+                user_data['age'] = age_from_dob(row.get('date_of_birth'), today=app_today())
+            except ValueError:
+                user_data['age'] = None
             user_data['cell_category'] = row.get('cell_category')
             user_data['zone'] = row.get('zone_name') or row.get('zone')
             # Branch: resolve branch_id to branch name (branches table lookup)
@@ -1645,8 +1719,14 @@ def profile():
                         user_data['zone'] = zone_res.data[0].get('name')
                 except Exception:
                     pass
+            set_profile_incomplete_flag(leader_id, row=row)
     except Exception as e:
         print(f"Error fetching user profile fields: {e}")
+    user_data.setdefault('address', '')
+    user_data.setdefault('district', '')
+    user_data.setdefault('province', '')
+    user_data.setdefault('date_of_birth', '')
+    user_data.setdefault('age', None)
     
     # Calculate member count
     try:
@@ -1691,7 +1771,13 @@ def profile():
         user_data['attendance_rate'] = 0
     
     template_name = f'main/profile{get_template_suffix()}.html'
-    return render_template(template_name, user=user_data)
+    return render_template(
+        template_name,
+        user=user_data,
+        districts=DISTRICT_LIST,
+        profile_incomplete=bool(session.get('profile_incomplete')),
+        today_iso=app_today().isoformat(),
+    )
 
 
 @main_bp.route('/leaderboard')

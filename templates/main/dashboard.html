@@ -10,39 +10,57 @@
     <!-- Welcome Section -->
     <div class="welcome-section">
         <div class="welcome-card">
-            <a href="{{ url_for('auth.logout') }}" class="welcome-logout-btn" aria-label="Log out" title="Log out">
-                <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
-            </a>
-            <div class="welcome-icon">
-                <i class="fas fa-home"></i>
-            </div>
-            <div class="welcome-content">
-                <h1>Welcome back, {% if user.is_deputy %}Deputy Leader{% else %}{{ user.name or 'Leader' }}{% endif %}!</h1>
-                <p>Manage your cell group activities and members</p>
-                <div class="desktop-leaderboard-pill">
-                    <span class="dashboard-rank-tier">
-                        <span class="dashboard-rank-tier-label">Rank:</span>
-                        {% if leaderboard_stats.rank is not none %}
-                            {% set r = leaderboard_stats.rank %}
-                            {% if r == 1 %}
-                                <i class="fas fa-medal rank-medal-icon rank-medal-icon--platinum" aria-hidden="true" title="Platinum · rank 1"></i>
-                            {% elif r == 2 %}
-                                <i class="fas fa-medal rank-medal-icon rank-medal-icon--gold" aria-hidden="true" title="Gold · rank 2"></i>
-                            {% elif r == 3 %}
-                                <i class="fas fa-medal rank-medal-icon rank-medal-icon--silver" aria-hidden="true" title="Silver · rank 3"></i>
-                            {% else %}
-                                <i class="fas fa-medal rank-medal-icon rank-medal-icon--default" aria-hidden="true" title="Rank {{ r }}"></i>
-                            {% endif %}
-                        {% else %}
-                            <i class="fas fa-medal rank-medal-icon rank-medal-icon--muted" aria-hidden="true" title="No rank"></i>
-                        {% endif %}
-                    </span>
-                    <span>Pts: <strong>{{ leaderboard_stats.total_score if leaderboard_stats.total_score is not none else 0 }}</strong></span>
-                    <span>Position: <strong>{{ leaderboard_stats.position }}</strong></span>
+            <div class="welcome-top">
+                <div class="welcome-icon">
+                    <i class="fas fa-home"></i>
                 </div>
-        </div>
+                <div class="welcome-content">
+                    <p class="welcome-kicker">Welcome back</p>
+                    <h1 class="welcome-name">{% if user.is_deputy %}Deputy Leader{% else %}{{ user.name or 'Leader' }}{% endif %}</h1>
+                    <p class="welcome-subtitle">Manage your cell group activities and members</p>
+                </div>
+                <a href="{{ url_for('auth.logout') }}" class="welcome-logout-btn" aria-label="Log out" title="Log out">
+                    <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
+                </a>
+            </div>
+            <div class="desktop-leaderboard-pill">
+                <span class="dashboard-rank-tier">
+                    <span class="dashboard-rank-tier-label">Rank</span>
+                    {% if leaderboard_stats.rank is not none %}
+                        {% set r = leaderboard_stats.rank %}
+                        {% if r == 1 %}
+                            <i class="fas fa-medal rank-medal-icon rank-medal-icon--platinum" aria-hidden="true" title="Platinum · rank 1"></i>
+                        {% elif r == 2 %}
+                            <i class="fas fa-medal rank-medal-icon rank-medal-icon--gold" aria-hidden="true" title="Gold · rank 2"></i>
+                        {% elif r == 3 %}
+                            <i class="fas fa-medal rank-medal-icon rank-medal-icon--silver" aria-hidden="true" title="Silver · rank 3"></i>
+                        {% else %}
+                            <i class="fas fa-medal rank-medal-icon rank-medal-icon--default" aria-hidden="true" title="Rank {{ r }}"></i>
+                        {% endif %}
+                    {% else %}
+                        <i class="fas fa-medal rank-medal-icon rank-medal-icon--muted" aria-hidden="true" title="No rank"></i>
+                    {% endif %}
+                </span>
+                <span class="leaderboard-pill-sep" aria-hidden="true"></span>
+                <span>Pts <strong>{{ leaderboard_stats.total_score if leaderboard_stats.total_score is not none else 0 }}</strong></span>
+                <span class="leaderboard-pill-sep" aria-hidden="true"></span>
+                <span>Position <strong>{{ leaderboard_stats.position }}</strong></span>
+            </div>
         </div>
     </div>
+
+    {% if profile_incomplete %}
+    <div class="profile-incomplete-banner" role="status">
+        <div class="profile-incomplete-icon">
+            <i class="fas fa-id-card"></i>
+        </div>
+        <div class="profile-incomplete-text">
+            <h4>Complete your profile</h4>
+            <p>Please add your address, district, and date of birth. Age is calculated from date of birth.</p>
+        </div>
+        <a href="{{ url_for('main.profile') }}" class="profile-incomplete-btn">Update profile</a>
+    </div>
+    {% endif %}
 
     <!-- Attendance Reminder Banner -->
     {% if attendance_reminder and not attendance_reminder.is_past_deadline and latest_attendance and latest_attendance.status != 'complete' %}
@@ -360,6 +378,67 @@
    MODERN DESKTOP DASHBOARD STYLING
    =========================================== */
 
+.profile-incomplete-banner {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+    padding: 1.25rem 1.5rem;
+    background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%);
+    border: 1px solid #3b82f6;
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(59, 130, 246, 0.2);
+}
+
+.profile-incomplete-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.profile-incomplete-text {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.profile-incomplete-text h4 {
+    margin: 0 0 0.35rem;
+    color: white;
+    font-size: 1.1rem;
+}
+
+.profile-incomplete-text p {
+    margin: 0;
+    color: #cbd5e1;
+    font-size: 0.95rem;
+}
+
+.profile-incomplete-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.7rem 1.15rem;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: white;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.profile-incomplete-btn:hover {
+    color: white;
+    filter: brightness(1.08);
+}
+
 /* Status indicators */
 .status-updated {
     color: #10b981 !important;
@@ -583,7 +662,7 @@
     background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
     border: 1px solid #475569;
     border-radius: 20px;
-    padding: 2.5rem;
+    padding: 1.75rem 2rem;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     position: relative;
     overflow: hidden;
@@ -600,11 +679,14 @@
     border-radius: 20px 20px 0 0;
 }
 
+.welcome-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.25rem;
+}
+
 .welcome-logout-btn {
-    position: absolute;
-    top: 1.25rem;
-    right: 1.25rem;
-    z-index: 2;
+    flex-shrink: 0;
     width: 44px;
     height: 44px;
     border-radius: 12px;
@@ -615,8 +697,9 @@
     background: rgba(15, 23, 42, 0.55);
     border: 1px solid rgba(148, 163, 184, 0.35);
     text-decoration: none;
-    font-size: 1.1rem;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    font-size: 1.05rem;
+    margin-left: auto;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .welcome-logout-btn:hover {
@@ -624,48 +707,63 @@
     background: rgba(71, 85, 105, 0.75);
     border-color: rgba(148, 163, 184, 0.55);
     text-decoration: none;
-    transform: scale(1.05);
 }
 
 .welcome-icon {
-    width: 80px;
-    height: 80px;
+    width: 64px;
+    height: 64px;
+    flex-shrink: 0;
     background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-    border-radius: 20px;
+    border-radius: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 32px;
+    font-size: 26px;
     color: white;
     box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
-        margin-bottom: 1.5rem;
-    }
-    
-.welcome-content h1 {
-    color: white;
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin: 0 0 0.5rem 0;
-    line-height: 1.2;
 }
 
-.welcome-content p {
-    color: #cbd5e1;
-    font-size: 1.25rem;
+.welcome-content {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.welcome-kicker {
+    margin: 0 0 0.2rem;
+    color: #93c5fd;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.welcome-name {
+    color: white;
+    font-size: clamp(1.4rem, 2.4vw, 2.1rem);
+    font-weight: 700;
     margin: 0;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.welcome-subtitle {
+    color: #cbd5e1;
+    font-size: 1.05rem;
+    margin: 0.35rem 0 0;
     line-height: 1.4;
 }
 
 .desktop-leaderboard-pill {
-    margin-top: 0.9rem;
+    margin-top: 1.15rem;
     display: inline-flex;
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
+    max-width: 100%;
     padding: 0.55rem 0.9rem;
-    border-radius: 999px;
-    background: rgba(30, 64, 175, 0.25);
-    border: 1px solid rgba(96, 165, 250, 0.45);
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(96, 165, 250, 0.35);
     color: #bfdbfe;
     font-size: 0.9rem;
 }
@@ -674,15 +772,26 @@
     color: #ffffff;
 }
 
+.leaderboard-pill-sep {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #64748b;
+    flex-shrink: 0;
+}
+
 .dashboard-rank-tier {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    flex-wrap: wrap;
 }
 
 .dashboard-rank-tier-label {
     color: #bfdbfe;
+}
+
+.desktop-leaderboard-pill .rank-medal-icon {
+    font-size: 1.15rem;
 }
 
 .rank-medal-icon {
@@ -1289,12 +1398,16 @@
         gap: 1rem;
     }
     
-    .welcome-content h1 {
-        font-size: 2rem;
+    .welcome-name {
+        font-size: 1.5rem;
     }
     
-    .welcome-content p {
+    .welcome-subtitle {
         font-size: 1rem;
+    }
+
+    .welcome-top {
+        flex-wrap: wrap;
     }
 }
 

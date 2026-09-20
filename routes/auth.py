@@ -218,6 +218,13 @@ def login_leader(user_data: dict, local10: str, duplicate_count: int = 1):
         return redirect(url_for('auth.set_password'))
 
     try:
+        from routes.main import set_profile_incomplete_flag
+        set_profile_incomplete_flag(user_id)
+    except Exception as pe:
+        print(f"profile incomplete check skipped: {pe}")
+        session['profile_incomplete'] = False
+
+    try:
         log_activity(
             leader_id=user_id,
             user_id=user_id,
@@ -673,5 +680,6 @@ def logout():
     session.pop('login_mobile', None)
     session.pop('must_set_password', None)
     session.pop('password_reset_flag_id', None)
+    session.pop('profile_incomplete', None)
     flash('You have been logged out', 'info')
     return redirect(url_for('auth.login'))

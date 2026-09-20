@@ -65,16 +65,8 @@
                         <span class="info-value">{{ user.email or 'Not provided' }}</span>
                     </div>
                 </div>
-                <div class="info-item">
-                    <div class="info-icon">
-                        <i class="fas fa-birthday-cake"></i>
-                    </div>
-                    <div class="info-content">
-                        <span class="info-label">AGE</span>
-                        <span class="info-value">{{ user.age or 'Not specified' }}</span>
-                    </div>
-                </div>
             </div>
+            {% include 'main/_profile_location_form.html' %}
         </div>
 
         <!-- Ministry Information Card -->
@@ -121,6 +113,7 @@
                     <div class="info-content info-content--stacked">
                         <span class="info-label">CELL CATEGORY (TUTORIALS)</span>
                         <form method="post" action="{{ url_for('main.profile') }}" class="cell-category-form">
+                            <input type="hidden" name="form_action" value="cell_category">
                             <select name="cell_category" class="cell-category-select" aria-label="Cell category">
                                 <option value="" {% if not user.cell_category %}selected{% endif %}>Select category…</option>
                                 <option value="youth" {% if user.cell_category == 'youth' %}selected{% endif %}>Youth</option>
@@ -693,6 +686,10 @@
         grid-template-columns: 1fr 1fr 1fr;
         align-items: start;
     }
+
+    .profile-content > .info-card:first-of-type {
+        grid-column: 1 / span 2;
+    }
     
     .actions-card {
         grid-column: 1 / -1;
@@ -711,5 +708,11 @@
         background: #0f172a;
     }
 }
+
+{% include 'main/_profile_location_styles.html' %}
 </style>
+{% endblock %}
+
+{% block extra_js %}
+{% include 'main/_profile_location_script.html' %}
 {% endblock %}
