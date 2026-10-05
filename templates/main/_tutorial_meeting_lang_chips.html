@@ -1,33 +1,80 @@
-{# leader_cell_category, tutorial_chip_rows from build_weekly_tutorial_dashboard_rows(tutorials) #}
+{# leader_category_buttons, tutorial_chip_rows from the meeting tutorials view #}
 <div class="tutorial-lang-chips-wrap">
-    {% if not leader_cell_category %}
+    {% if not leader_cell_categories %}
     <p class="tut-lang-hint">Set your cell category (Youth, Young Adult, or Adult) on your <a href="{{ url_for('main.profile') }}" class="tut-lang-hint-link">profile</a> to see tutorials for your cell.</p>
-    {% elif tutorial_chip_rows %}
-    <p class="tut-lang-panel-label"><i class="fas fa-graduation-cap" aria-hidden="true"></i> {{ leader_cell_category }} · PDF &amp; video by language</p>
-    <div class="tut-lang-chips-panel">
-        {% for row in tutorial_chip_rows %}
-        <div class="tut-lang-row">
-            <div class="tut-lang-title">{{ row.heading }}</div>
-            <div class="tut-lang-groups">
-                <div class="tut-lang-group">
-                    <span class="tut-lang-group-label">PDF</span>
-                    <div class="tut-lang-chips">
-                        {% for s in row.slots %}
-                            {% if s.pdf %}<a href="{{ s.pdf }}" target="_blank" rel="noopener noreferrer" class="tut-lang-chip">{{ s.label }}</a>{% endif %}
-                        {% endfor %}
-                    </div>
-                </div>
-                <div class="tut-lang-group">
-                    <span class="tut-lang-group-label">Video</span>
-                    <div class="tut-lang-chips">
-                        {% for s in row.slots %}
-                            {% if s.video %}<a href="{{ s.video }}" target="_blank" rel="noopener noreferrer" class="tut-lang-chip">{{ s.label }}</a>{% endif %}
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
+    {% else %}
+    <div class="tut-cat-buttons" role="group" aria-label="Cell categories">
+        {% for button in leader_category_buttons %}
+        <button type="button"
+                class="tut-cat-btn{% if loop.first %} is-active{% endif %}"
+                data-category="{{ button.value }}">{{ button.label }}</button>
         {% endfor %}
     </div>
+    {% if tutorial_chip_rows %}
+    <div class="tut-lang-chips-panel">
+        {% for row in tutorial_chip_rows %}
+        <div class="tut-lang-row tut-filter-item" data-category="{{ row.cell_category }}"{% if leader_cell_categories and row.cell_category != leader_cell_categories[0] %} hidden{% endif %}>
+            <div class="tut-lang-title">{{ row.heading }}</div>
+            {% for lang in row.languages %}
+            <div class="tut-lang-block">
+                <div class="tut-lang-name">{{ lang.label }}</div>
+                <div class="tut-lang-chips">
+                    {% for pdf in lang.pdfs %}
+                    <a href="{{ pdf.url }}" target="_blank" rel="noopener noreferrer" class="tut-lang-chip">{{ pdf.label }}</a>
+                    {% endfor %}
+                    {% for video in lang.videos %}
+                    <a href="{{ video.url }}" target="_blank" rel="noopener noreferrer" class="tut-lang-chip tut-lang-chip--video">{{ video.label }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+        <p class="tut-cat-empty" hidden>No tutorials yet for this category.</p>
+    </div>
+    {% elif not tutorial_legacy_sections %}
+    <p class="tut-lang-hint">No tutorials yet.</p>
+    {% endif %}
     {% endif %}
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var buttons = document.querySelectorAll('.tut-cat-btn');
+    var items = document.querySelectorAll('.tut-filter-item');
+    var empty = document.querySelector('.tut-cat-empty');
+    if (!buttons.length) return;
+
+    function apply(category) {
+        var shown = 0;
+        items.forEach(function (item) {
+            var match = item.getAttribute('data-category') === category;
+            item.hidden = !match;
+            if (match) shown += 1;
+        });
+        document.querySelectorAll('.tutorial-section-block').forEach(function (section) {
+            var sectionItems = section.querySelectorAll('.tut-filter-item');
+            if (!sectionItems.length) return;
+            var any = false;
+            sectionItems.forEach(function (item) {
+                if (!item.hidden) any = true;
+            });
+            section.hidden = !any;
+        });
+        buttons.forEach(function (btn) {
+            var on = btn.getAttribute('data-category') === category;
+            btn.classList.toggle('is-active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        if (empty) empty.hidden = shown > 0;
+    }
+
+    buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            apply(btn.getAttribute('data-category'));
+        });
+    });
+
+    var active = document.querySelector('.tut-cat-btn.is-active');
+    if (active) apply(active.getAttribute('data-category'));
+});
+</script>

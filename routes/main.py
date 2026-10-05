@@ -11,8 +11,12 @@ from utils.device_detector import get_template_suffix
 from utils.leaderboard_snapshot_query import query_with_fallback_filters, SNAPSHOT_TABLE_CANDIDATES
 from utils.tutorials_access import (
     build_weekly_tutorial_dashboard_rows,
-    fetch_leader_cell_category,
+    category_view_label,
+    fetch_leader_cell_categories,
     format_tutorial_section_heading,
+    is_tutorial_placeholder,
+    query_tutorials_for_categories,
+    tutorial_file_urls,
     tutorial_row_raw_title,
     usable_custom_tutorial_title,
 )
@@ -210,31 +214,43 @@ def _tutorial_resource_url(tutorial):
     return str(raw).strip()
 
 
-def load_tutorials_for_meeting_day(meeting_date_formatted, parsed_date, cell_category=None):
-    """Rows for that meeting day and leader cell category. Uses exact match first, then a day range."""
-    if not supabase or not cell_category:
+def meeting_tutorial_status(rows):
+    """True when any category row has files or a real title. Prefers a viewable row."""
+    fallback = None
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if fallback is None:
+            fallback = row
+        if tutorial_file_urls(row) or not is_tutorial_placeholder(row):
+            return True, row
+    return False, fallback
+
+
+def load_tutorials_for_meeting_day(meeting_date_formatted, parsed_date, cell_category=None, cell_categories=None):
+    """Rows for that meeting day and the leader's categories. Exact day first, then a day range."""
+    cats = list(cell_categories or [])
+    if not cats and cell_category:
+        cats = [cell_category]
+    if not supabase or not cats:
         return []
-    result = (
-        supabase.table('tutorials')
-        .select('*')
-        .eq('meeting_date', meeting_date_formatted)
-        .eq('cell_category', cell_category)
-        .execute()
+    rows = query_tutorials_for_categories(
+        supabase, cats, meeting_date=meeting_date_formatted
     )
-    rows = result.data or []
     if rows or not parsed_date:
         return rows
     day_start = parsed_date.isoformat()
     day_end = (parsed_date + timedelta(days=1)).isoformat()
-    result2 = (
-        supabase.table('tutorials')
-        .select('*')
-        .eq('cell_category', cell_category)
-        .gte('meeting_date', day_start)
-        .lt('meeting_date', day_end)
-        .execute()
-    )
-    return result2.data or []
+    try:
+        query = supabase.table('tutorials').select('*').gte('meeting_date', day_start).lt('meeting_date', day_end)
+        if len(cats) == 1:
+            query = query.eq('cell_category', cats[0])
+        else:
+            query = query.in_('cell_category', cats)
+        return query.execute().data or []
+    except Exception as e:
+        print(f"load_tutorials_for_meeting_day range: {e}")
+        return []
 
 
 def _str_url(val):
@@ -297,6 +313,10 @@ def _tutorial_display_entry(row, url, title, description_fallback=None):
     desc = row.get('description')
     if (not desc or not str(desc).strip()) and description_fallback:
         desc = description_fallback
+    raw_cat = str(row.get('cell_category') or '').strip()
+    lowered = raw_cat.lower()
+    if lowered in ('youth', 'young adult', 'adult'):
+        raw_cat = lowered
     return {
         'file_url': url,
         'tutorial_name': title,
@@ -304,6 +324,7 @@ def _tutorial_display_entry(row, url, title, description_fallback=None):
         'meeting_date': row.get('meeting_date'),
         'description': desc,
         'uploaded_at': row.get('uploaded_at'),
+        'cell_category': raw_cat,
     }
 
 
@@ -404,7 +425,7 @@ def build_tutorial_legacy_sections(rows):
             usable_custom_tutorial_title(tutorial_row_raw_title(row))
             or 'Weekly Meeting'
         )
-        seen_any_numbered = set()
+        seen_any_numbered = set(tutorial_file_urls(row))
         for i in (1, 2, 3):
             u = _str_url(row.get(f'pdf_url_{i}'))
             if u:
@@ -1322,9 +1343,11 @@ def index():
         # Get leader ID - use user ID directly
         leader_id = get_effective_leader_id()
         leaderboard_stats = get_dashboard_leaderboard_stats(leader_id)
+        leader_cell_categories = []
         leader_cell_category = None
         try:
-            leader_cell_category = fetch_leader_cell_category(supabase, leader_id)
+            leader_cell_categories = fetch_leader_cell_categories(supabase, leader_id)
+            leader_cell_category = leader_cell_categories[0] if leader_cell_categories else None
         except Exception as wt_err:
             print(f"Error loading leader cell category: {wt_err}")
 
@@ -1352,27 +1375,22 @@ def index():
             tutorials_result_data = []
             has_tutorials = False
             try:
-                if leader_cell_category:
-                    tutorials_result = (
-                        supabase.table('tutorials')
-                        .select('*')
-                        .eq('meeting_date', next_meeting_date.isoformat())
-                        .eq('cell_category', leader_cell_category)
-                        .execute()
+                if leader_cell_categories:
+                    tutorials_result_data = query_tutorials_for_categories(
+                        supabase,
+                        leader_cell_categories,
+                        meeting_date=next_meeting_date.isoformat(),
                     )
-                    tutorials_result_data = tutorials_result.data or []
-                    has_tutorials = len(tutorials_result_data) > 0
+                    has_tutorials, _viewable = meeting_tutorial_status(tutorials_result_data)
             except Exception as e:
                 print(f"Error checking tutorials: {e}")
                 has_tutorials = False
 
             is_placeholder = False
-            if has_tutorials and tutorials_result_data:
-                tutorial_record = tutorials_result_data[0]
-                is_placeholder = (
-                    tutorial_record.get('tutorial_name') == 'No Tutorial Uploaded'
-                    or tutorial_record.get('title') == 'No Tutorial Uploaded'
-                )
+            if tutorials_result_data:
+                has_viewable, tutorial_record = meeting_tutorial_status(tutorials_result_data)
+                has_tutorials = has_viewable
+                is_placeholder = not has_viewable
 
             tutorial_status = 'updated' if has_tutorials and not is_placeholder else 'not_updated'
             tutorial_card_data.update({
@@ -1400,16 +1418,14 @@ def index():
                     })
                 date_isos = list({s['meeting_date_iso'] for s in parsed_slots})
                 tutorials_by_iso = {}
-                if date_isos and leader_cell_category:
+                if date_isos and leader_cell_categories:
                     try:
-                        batch_tr = (
-                            supabase.table('tutorials')
-                            .select('*')
-                            .in_('meeting_date', date_isos)
-                            .eq('cell_category', leader_cell_category)
-                            .execute()
+                        batch_rows = query_tutorials_for_categories(
+                            supabase,
+                            leader_cell_categories,
+                            meeting_dates=date_isos,
                         )
-                        for row in (batch_tr.data or []):
+                        for row in batch_rows:
                             nk = _parse_meeting_date_value(row.get('meeting_date'))
                             if nk:
                                 tutorials_by_iso.setdefault(nk.isoformat(), []).append(row)
@@ -1424,14 +1440,8 @@ def index():
                             if alt_k.startswith(meeting_date_iso) or meeting_date_iso.startswith(alt_k[:10]):
                                 rows_for_day = alt_rows
                                 break
-                    has_tutorial = len(rows_for_day) > 0
-                    tutorial_record = rows_for_day[0] if has_tutorial else None
-                    is_placeholder_tutorial = False
-                    if has_tutorial and tutorial_record:
-                        is_placeholder_tutorial = (
-                            tutorial_record.get('title') == 'No Tutorial Uploaded'
-                            or tutorial_record.get('title') == ''
-                        )
+                    has_tutorial, tutorial_record = meeting_tutorial_status(rows_for_day)
+                    is_placeholder_tutorial = bool(rows_for_day) and not has_tutorial
                     is_upcoming = parsed_date > today
                     tutorial_list.append({
                         'date': parsed_date.strftime("%B %d, %Y"),
@@ -3322,11 +3332,19 @@ def meeting_tutorials(meeting_date):
                 parsed_date = alt
                 meeting_date_formatted = alt.isoformat()
 
-        # Note: tutorials filtered by leader's users.cell_category
-        leader_cat = fetch_leader_cell_category(supabase, leader_id)
-        tutorials = load_tutorials_for_meeting_day(meeting_date_formatted, parsed_date, cell_category=leader_cat)
+        leader_cell_categories = fetch_leader_cell_categories(supabase, leader_id)
+        leader_cat = leader_cell_categories[0] if leader_cell_categories else None
+        tutorials = load_tutorials_for_meeting_day(
+            meeting_date_formatted,
+            parsed_date,
+            cell_categories=leader_cell_categories,
+        )
         tutorial_chip_rows = build_weekly_tutorial_dashboard_rows(tutorials)
         tutorial_legacy_sections = build_tutorial_legacy_sections(tutorials)
+        leader_category_buttons = [
+            {'value': cat, 'label': category_view_label(cat)}
+            for cat in leader_cell_categories
+        ]
 
         # Check if this is the next meeting date (use corrected tutorial logic)
         next_meeting_date = get_tutorial_meeting_date_corrected()
@@ -3348,6 +3366,8 @@ def meeting_tutorials(meeting_date):
             tutorial_chip_rows=tutorial_chip_rows,
             tutorial_legacy_sections=tutorial_legacy_sections,
             leader_cell_category=leader_cat,
+            leader_cell_categories=leader_cell_categories,
+            leader_category_buttons=leader_category_buttons,
             is_next_week=is_next_week,
             is_latest=False,
             no_tutorial_uploaded=len(tutorials) == 0,
@@ -3360,58 +3380,11 @@ def meeting_tutorials(meeting_date):
         return redirect(url_for('main.index'))
 @main_bp.route('/upload-tutorial/<meeting_date>', methods=['POST'])
 def upload_tutorial(meeting_date):
-    """Upload tutorial for a specific meeting date"""
+    """Leaders view tutorials only. Uploads stay in the Cell Portal."""
     if 'user' not in session:
         return redirect(url_for('auth.login'))
-    try:
-        tutorial_name = request.form.get('tutorial_name')
-        tutorial_description = request.form.get('tutorial_description', '')
-        if not tutorial_name:
-            flash('Tutorial name is required', 'error')
-            return redirect(url_for('main.meeting_tutorials', meeting_date=meeting_date))
-        # Get leader ID - use user ID directly
-        leader_id = get_effective_leader_id()
-        # Convert meeting_date string to proper date format
-        from datetime import datetime
-        try:
-            parsed_date = datetime.strptime(meeting_date, "%B %d, %Y").date()
-            meeting_date_formatted = parsed_date.isoformat()
-        except ValueError:
-            meeting_date_formatted = meeting_date
-        # Insert tutorial into database
-        # Note: tutorials table doesn't have leader_id column, so we don't include it
-        tutorial_data = {
-            'tutorial_name': tutorial_name,
-            'description': tutorial_description,
-            'meeting_date': meeting_date_formatted,
-            'uploaded_at': datetime.now().isoformat()
-        }
-        result = supabase.table('tutorials').insert(tutorial_data).execute()
-        if result.data:
-            # Log tutorial upload activity
-            log_activity(
-                leader_id=leader_id,
-                user_id=leader_id,
-                activity_type='tutorial_uploaded',
-                description=f'Uploaded tutorial: {tutorial_name} for {meeting_date}',
-                user_role='leader',
-                user_name=session['user'].get('name', 'Leader'),
-                source='cell_app',
-                platform='web',
-                details={
-                    'tutorial_name': tutorial_name,
-                    'meeting_date': meeting_date,
-                    'description': tutorial_description
-                }
-            )
-            flash('Tutorial uploaded successfully!', 'success')
-        else:
-            flash('Error uploading tutorial', 'error')
-        return redirect(url_for('main.meeting_tutorials', meeting_date=meeting_date))
-    except Exception as e:
-        print(f"Error uploading tutorial: {e}")
-        flash('Error uploading tutorial', 'error')
-        return redirect(url_for('main.meeting_tutorials', meeting_date=meeting_date))
+    flash('Tutorials are view only. A portal admin uploads them.', 'error')
+    return redirect(url_for('main.meeting_tutorials', meeting_date=meeting_date))
 
 @main_bp.route('/tutorials-list')
 def tutorials_list():
@@ -3429,7 +3402,7 @@ def tutorials_list():
         # Get leader ID - use user ID directly
         leader_id = get_effective_leader_id()
         
-        leader_cat = fetch_leader_cell_category(supabase, leader_id)
+        leader_cell_categories = fetch_leader_cell_categories(supabase, leader_id)
         tutorial_list = []
         try:
             # Get user's created date to filter meetings
@@ -3480,21 +3453,14 @@ def tutorials_list():
                     has_tutorial = False
                     is_placeholder_tutorial = False
                     tutorial_record = None
-                    if leader_cat:
-                        tutorial_result = (
-                            supabase.table('tutorials')
-                            .select('*')
-                            .eq('meeting_date', meeting_date_iso)
-                            .eq('cell_category', leader_cat)
-                            .execute()
+                    if leader_cell_categories:
+                        day_rows = query_tutorials_for_categories(
+                            supabase,
+                            leader_cell_categories,
+                            meeting_date=meeting_date_iso,
                         )
-                        has_tutorial = len(tutorial_result.data) > 0 if tutorial_result.data else False
-                        if has_tutorial and tutorial_result.data:
-                            tutorial_record = tutorial_result.data[0]
-                            is_placeholder_tutorial = (
-                                tutorial_record.get('title') == 'No Tutorial Uploaded'
-                                or tutorial_record.get('title') == ''
-                            )
+                        has_tutorial, tutorial_record = meeting_tutorial_status(day_rows)
+                        is_placeholder_tutorial = bool(day_rows) and not has_tutorial
                     
                     # Determine if this is upcoming or past
                     is_upcoming = parsed_date > today

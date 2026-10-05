@@ -12,7 +12,7 @@ from utils.leaderboard_snapshot_query import (
     query_with_fallback_filters,
     SNAPSHOT_TABLE_CANDIDATES,
 )
-from utils.tutorials_access import fetch_tutorials_for_my_cell
+from utils.tutorials_access import fetch_tutorials_for_category, fetch_tutorials_for_my_cell
 from utils.sri_lanka_districts import DISTRICT_LIST
 
 load_dotenv()
@@ -543,36 +543,30 @@ def tutorials_for_my_cell():
 
     lid = _effective_leader_id()
     result = fetch_tutorials_for_my_cell(supabase, lid)
-    return jsonify({
+    return jsonify(_tutorial_access_payload(result))
+
+
+def _tutorial_access_payload(result):
+    """Leaders never edit. can_edit is always false in the Cell app."""
+    return {
         'success': True,
-        'cell_category': result['cell_category'],
-        'data': result['data'],
-    })
+        'cell_category': result.get('cell_category'),
+        'cell_categories': result.get('cell_categories') or [],
+        'can_edit': False,
+        'data': result.get('data') or [],
+    }
 
 
 @api_bp.route('/tutorials')
 @login_required
 def tutorials_by_category():
-    """Optional: GET /api/tutorials?cell_category=youth — must match tutorials.cell_category exactly."""
+    """Optional: GET /api/tutorials?cell_category=youth — must be one of this leader's categories."""
     if not supabase:
         return jsonify({'success': False, 'message': 'Supabase client is not configured'}), 500
+    lid = _effective_leader_id()
     cat = (request.args.get('cell_category') or '').strip()
     if not cat:
-        lid = _effective_leader_id()
         result = fetch_tutorials_for_my_cell(supabase, lid)
-        return jsonify({
-            'success': True,
-            'cell_category': result['cell_category'],
-            'data': result['data'],
-        })
-    try:
-        res = (
-            supabase.table('tutorials')
-            .select('*')
-            .eq('cell_category', cat)
-            .order('meeting_date', desc=True)
-            .execute()
-        )
-        return jsonify({'success': True, 'cell_category': cat, 'data': res.data or []})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+    else:
+        result = fetch_tutorials_for_category(supabase, lid, cat)
+    return jsonify(_tutorial_access_payload(result))
