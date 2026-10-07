@@ -25,6 +25,10 @@
         {% endif %}
     </div>
 
+    {% with notice_kind='detail' %}
+    {% include 'main/_member_gaps_notice.html' %}
+    {% endwith %}
+
     <!-- Member Information Card -->
     <div class="member-info-card">
         <div class="card-header">

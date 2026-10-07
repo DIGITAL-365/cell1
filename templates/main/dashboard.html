@@ -62,6 +62,8 @@
     </div>
     {% endif %}
 
+    {% include 'main/_member_gaps_notice.html' %}
+
     <!-- Attendance Reminder Banner -->
     {% if attendance_reminder and not attendance_reminder.is_past_deadline and latest_attendance and latest_attendance.status != 'complete' %}
     <div class="attendance-reminder-banner {% if attendance_reminder.is_urgent %}urgent{% elif attendance_reminder.is_approaching %}approaching{% endif %}" id="attendanceReminderBanner" data-deadline-iso="{{ attendance_reminder.deadline_iso }}">

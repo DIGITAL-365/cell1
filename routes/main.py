@@ -27,6 +27,10 @@ from utils.attendance_leader_self import (
     cell_is_operated,
     present_count_for_operated_totals,
 )
+from utils.member_gaps import (
+    ALLOWED_MEMBER_CELL_CATEGORIES,
+    apply_missing_member_fields,
+)
 from utils.sri_lanka_districts import (
     DISTRICT_LIST,
     age_from_dob,
@@ -166,7 +170,22 @@ def get_leader_location_context(leader_id):
     return leader_branch_id, leader_country, leader_branch_name
 
 
-ALLOWED_MEMBER_CELL_CATEGORIES = frozenset({'youth', 'young adult', 'adult'})
+def count_members_missing_details(leader_id):
+    """How many of this leader's members still have empty required details."""
+    if not supabase or not leader_id:
+        return 0
+    _, _, branch_name = get_leader_location_context(leader_id)
+    result = (
+        supabase.table('cell_members')
+        .select('id,name,phone_number,cell_category,zone_id')
+        .eq('leader_id', leader_id)
+        .neq('is_leader', True)
+        .execute()
+    )
+    return apply_missing_member_fields(
+        result.data or [],
+        zone_required=is_miracle_dome_branch(branch_name),
+    )
 
 
 def is_miracle_dome_branch(branch_name):
@@ -1607,6 +1626,12 @@ def index():
             if current_attendance_date:
                 attendance_reminder = get_attendance_reminder_info(current_attendance_date)
                 attendance_countdown = get_attendance_marking_countdown_payload(current_attendance_date)
+
+            members_missing_count = 0
+            try:
+                members_missing_count = count_members_missing_details(leader_id)
+            except Exception as gap_err:
+                print(f"member details notice skipped: {gap_err}")
             
             template_name = f'main/dashboard{get_template_suffix()}.html'
             return render_template(template_name,
@@ -1629,7 +1654,9 @@ def index():
                                  attendance_reminder=attendance_reminder,
                                  attendance_countdown=attendance_countdown,
                                  today=today,
-                                 profile_incomplete=bool(set_profile_incomplete_flag(get_effective_leader_id())))
+                                 profile_incomplete=bool(set_profile_incomplete_flag(get_effective_leader_id())),
+                                 members_missing_count=members_missing_count,
+                                 members_gaps_link=True)
         except Exception as e:
             print(f"Error rendering dashboard template: {e}")
             flash('Error loading dashboard', 'error')
@@ -2713,12 +2740,25 @@ def members():
             m['delete_request_pending'] = st.get('delete_request_pending', False)
             m['flag_issue_pending'] = st.get('flag_issue_pending', False)
             m['deputy_removal_pending'] = st.get('deputy_removal_pending', False)
+        _, _, branch_name = get_leader_location_context(leader_id)
+        members_missing_count = apply_missing_member_fields(
+            members,
+            zone_required=is_miracle_dome_branch(branch_name),
+        )
         # One deputy per leader; only the leader (not deputy) can assign
         has_deputy = any(m.get('deputy_leader') for m in members)
         can_assign_deputy = not has_deputy and not session['user'].get('is_deputy')
         
         template_name = f'main/members{get_template_suffix()}.html'
-        return render_template(template_name, members=members, user=session['user'], has_deputy=has_deputy, can_assign_deputy=can_assign_deputy)
+        return render_template(
+            template_name,
+            members=members,
+            user=session['user'],
+            has_deputy=has_deputy,
+            can_assign_deputy=can_assign_deputy,
+            members_missing_count=members_missing_count,
+            members_gaps_link=False,
+        )
     except Exception as e:
         error_msg = str(e)
         print(f"Error in members route: {error_msg}")  # Enhanced logging
@@ -2833,6 +2873,11 @@ def member_details(member_id):
             
             # Add zone_name to member data for template
             member['zone_name'] = zone_name
+            _, _, branch_name = get_leader_location_context(leader_id)
+            apply_missing_member_fields(
+                [member],
+                zone_required=is_miracle_dome_branch(branch_name),
+            )
 
             delete_request_pending, flag_issue_pending, deputy_removal_pending = (
                 pending_flagged_state_for_member(supabase, leader_id, member_id)

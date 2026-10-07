@@ -12,6 +12,8 @@
         <p>Manage your cell group members</p>
     </div>
 
+    {% include 'main/_member_gaps_notice.html' %}
+
     <!-- Add Member Button -->
     <div class="add-member-button-container">
         <a href="{{ url_for('main.member_form') }}" class="btn btn-primary btn-add-member">
@@ -42,8 +44,11 @@
                                             <i class="fas fa-user-shield" style="color: #58a6ff; margin-left: 8px; font-size: 0.9em;" title="Deputy Leader"></i>
                                         {% endif %}
                                     </div>
-                                    {% if member.delete_request_pending or member.flag_issue_pending or member.deputy_removal_pending %}
+                                    {% if member.delete_request_pending or member.flag_issue_pending or member.deputy_removal_pending or member.missing_label %}
                                     <div class="member-pending-badges" aria-label="Pending portal actions">
+                                        {% if member.missing_label %}
+                                        <span class="badge-pending badge-pending--gaps" title="Fill in {{ member.missing_label }}">Missing {{ member.missing_label }}</span>
+                                        {% endif %}
                                         {% if member.delete_request_pending %}
                                         <span class="badge-pending badge-pending--delete" title="Delete request awaiting review">Delete pending</span>
                                         {% endif %}
@@ -492,6 +497,15 @@ function setDeputyLeader(memberId, btn) {
     background: rgba(96, 165, 250, 0.15);
     color: #93c5fd;
     border: 1px solid rgba(96, 165, 250, 0.35);
+}
+
+.badge-pending--gaps {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fcd34d;
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.72rem;
 }
 
 .btn-change-deputy {
