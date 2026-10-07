@@ -6,6 +6,8 @@ load_dotenv()
 
 class Config:
     """Base configuration class"""
+    # Shown in the app header. Bump this when a release is pushed to main.
+    APP_VERSION = '1.1.0'
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production-12345')
     SUPABASE_URL = os.getenv('SUPABASE_URL')
     SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')

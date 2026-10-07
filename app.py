@@ -21,6 +21,10 @@ def create_app(config_name=None):
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)  # 1 hour
     app.config['SESSION_COOKIE_NAME'] = 'cellapp_session'
     
+    @app.context_processor
+    def inject_app_version():
+        return {'app_version': app.config.get('APP_VERSION', '')}
+
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
