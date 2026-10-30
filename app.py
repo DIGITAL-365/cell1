@@ -1,6 +1,6 @@
 from flask import Flask, session, request, g, redirect, url_for
 from routes.auth import auth_bp
-from routes.main import leader_has_incomplete_members, main_bp
+from routes.main import leader_has_incomplete_members, leader_has_incomplete_profile, main_bp
 from routes.api import api_bp
 from config import config
 import os
@@ -44,6 +44,36 @@ def create_app(config_name=None):
         if request.endpoint in allowed:
             return None
         return redirect(url_for('auth.set_password'))
+
+    @app.before_request
+    def require_leader_profile_before_app_use():
+        """Block the app until the leader has filled their own required details.
+
+        This runs before the member-details gate, so the leader finishes their
+        own form first.
+        """
+        user = session.get('user')
+        if not user or user.get('is_deputy') or session.get('must_set_password'):
+            return None
+        try:
+            incomplete = leader_has_incomplete_profile(user.get('id'))
+        except Exception as exc:
+            print(f"leader profile gate skipped: {exc}")
+            return None
+        if not incomplete:
+            return None
+        allowed = {
+            'main.fill_leader_profile',
+            'auth.logout',
+            'auth.login',
+            'auth.set_password',
+            'auth.forgot_password',
+            'static',
+            'chrome_devtools_probe',
+        }
+        if request.endpoint in allowed:
+            return None
+        return redirect(url_for('main.fill_leader_profile'))
 
     @app.before_request
     def require_member_details_before_app_use():

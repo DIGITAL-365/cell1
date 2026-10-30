@@ -114,16 +114,9 @@ def format_dob_for_input(raw):
 
 
 def missing_leader_profile_fields(row):
-    """Which of address, district, date of birth are still empty on a users row."""
-    row = row or {}
-    missing = []
-    if not str(row.get('address') or '').strip():
-        missing.append('address')
-    if not normalize_district(row.get('district')):
-        missing.append('district')
-    if not format_dob_for_input(row.get('date_of_birth')):
-        missing.append('date of birth')
-    return missing
+    """Labels still required on this leader before the app opens."""
+    from utils.leader_profile import profile_missing_labels
+    return profile_missing_labels(row)
 
 
 def leader_profile_write_payload(*, address=None, district=None, date_of_birth=None, today=None):

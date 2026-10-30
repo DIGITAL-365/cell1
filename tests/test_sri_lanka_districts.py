@@ -78,13 +78,15 @@ class WritePayloadTests(unittest.TestCase):
     def test_missing_fields(self):
         self.assertEqual(
             missing_leader_profile_fields({}),
-            ['address', 'district', 'date of birth'],
+            ['Address', 'District', 'Province', 'Date of birth', 'Marital status'],
         )
         self.assertEqual(
             missing_leader_profile_fields({
                 'address': 'A',
                 'district': 'Galle',
+                'province': 'Southern',
                 'date_of_birth': '1990-05-01',
+                'marital_status': 'Rather Not Say',
             }),
             [],
         )

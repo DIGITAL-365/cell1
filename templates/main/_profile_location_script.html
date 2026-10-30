@@ -125,6 +125,11 @@
             age.value = ageFromDob(dob.value);
         }
 
+        function fieldValue(id) {
+            const el = document.getElementById(id);
+            return el ? (el.value || '').trim() : '';
+        }
+
         function currentValues() {
             return {
                 address: (document.getElementById('leader_address').value || '').trim(),
@@ -132,17 +137,27 @@
                 province: (province.value || '').trim(),
                 date_of_birth: (dob && dob.value) || '',
                 age: (age && age.value) || '',
+                country: fieldValue('leader_country'),
+                marital_status: fieldValue('leader_marital'),
+                email: fieldValue('leader_email'),
+                zone_id: fieldValue('leader_zone'),
             };
         }
 
         function changedRows() {
             const now = currentValues();
-            const fields = [
+            let fields = [
                 { key: 'address', label: 'Address' },
                 { key: 'district', label: 'District' },
                 { key: 'province', label: 'Province' },
                 { key: 'date_of_birth', label: 'Date of birth' },
+                { key: 'country', label: 'Country' },
+                { key: 'marital_status', label: 'Marital status' },
+                { key: 'email', label: 'Email' },
             ];
+            if (document.getElementById('leader_zone')) {
+                fields.push({ key: 'zone_id', label: 'Zone' });
+            }
             const rows = fields.filter(function (field) {
                 return (original[field.key] || '') !== (now[field.key] || '');
             }).map(function (field) {
@@ -252,6 +267,17 @@
             syncAge();
         }
         setProvinceFromDistrict(hidden ? hidden.value : '');
+
+        const zoneSelect = document.getElementById('leader_zone');
+        const sectorInput = document.getElementById('leader_sector');
+        if (zoneSelect && sectorInput) {
+            zoneSelect.addEventListener('change', function () {
+                const option = zoneSelect.options[zoneSelect.selectedIndex];
+                const value = option ? option.getAttribute('data-sector') : '';
+                sectorInput.value = value || '';
+            });
+            if (zoneSelect.value) zoneSelect.dispatchEvent(new Event('change'));
+        }
 
         form.addEventListener('submit', function (e) {
             if (allowSubmit) return;
