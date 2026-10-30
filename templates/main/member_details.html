@@ -63,8 +63,7 @@
         </div>
             <div class="detail-item">
                 <div class="detail-label">Ministry</div>
-                <div class="detail-value" id="ministry-display">{{ member.ministry or 'Not assigned' }}</div>
-                <input type="text" class="detail-input" id="ministry-input" value="{{ member.ministry or '' }}" placeholder="Enter ministry" style="display: none;">
+                <div class="detail-value" id="ministry-display">{{ member.ministry_label or 'Not assigned' }}</div>
     </div>
             <div class="detail-item">
                 <div class="detail-label">Zone</div>
@@ -87,8 +86,8 @@
                 <div class="detail-value">{{ member.country or 'Not specified' }}</div>
             </div>
             <div class="detail-item">
-                <div class="detail-label">Branch ID</div>
-                <div class="detail-value">{{ member.branch_id or 'Not specified' }}</div>
+                <div class="detail-label">Branch</div>
+                <div class="detail-value">{{ member.branch_name or 'Not specified' }}</div>
             </div>
             <div class="detail-item">
                 <div class="detail-label">Cell Category</div>

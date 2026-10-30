@@ -1,6 +1,6 @@
 from flask import Flask, session, request, g, redirect, url_for
 from routes.auth import auth_bp
-from routes.main import main_bp
+from routes.main import leader_has_incomplete_members, main_bp
 from routes.api import api_bp
 from config import config
 import os
@@ -44,6 +44,35 @@ def create_app(config_name=None):
         if request.endpoint in allowed:
             return None
         return redirect(url_for('auth.set_password'))
+
+    @app.before_request
+    def require_member_details_before_app_use():
+        """Block the app until every cell member has the required details."""
+        user = session.get('user')
+        if not user or user.get('is_deputy') or session.get('must_set_password'):
+            return None
+        try:
+            incomplete = leader_has_incomplete_members(user.get('id'))
+        except Exception as exc:
+            print(f"member details gate skipped: {exc}")
+            return None
+        if not incomplete:
+            return None
+        if request.endpoint == 'main.member_form' and request.args.get('edit'):
+            return None
+        allowed = {
+            'main.fill_member_details',
+            'main.update_member',
+            'auth.logout',
+            'auth.login',
+            'auth.set_password',
+            'auth.forgot_password',
+            'static',
+            'chrome_devtools_probe',
+        }
+        if request.endpoint in allowed:
+            return None
+        return redirect(url_for('main.fill_member_details'))
 
     @app.route('/.well-known/appspecific/com.chrome.devtools.json')
     def chrome_devtools_probe():

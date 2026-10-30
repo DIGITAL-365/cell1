@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Fill member details - CellApp{% endblock %}
+{% block body_class %}member-details-gate{% endblock %}
+
+{% macro member_rows() %}
+<div class="fill-details-page">
+    <h1>Fill member details</h1>
+    <div class="fill-details-list">
+        {% for member in members %}
+        <a class="fill-details-row" href="{{ url_for('main.member_form', edit=member.id, gate=1) }}">
+            <span class="fill-details-name">{% if member.name and member.name.strip() %}{{ member.name }}{% else %}No name{% endif %}</span>
+            <span class="fill-details-missing">{{ member.missing_label }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endmacro %}
+
+{% block mobile_content %}
+{{ member_rows() }}
+{% endblock %}
+
+{% block desktop_content %}
+{{ member_rows() }}
+{% endblock %}
+
+{% block mobile_nav %}{% endblock %}
+{% block desktop_nav %}{% endblock %}
+
+{% block extra_css %}
+<style>
+body.member-details-gate .mobile-nav,
+body.member-details-gate .desktop-nav {
+    display: none !important;
+}
+.fill-details-page {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 1.25rem 0 2rem;
+}
+.fill-details-page h1 {
+    margin: 0 0 1rem;
+    color: #f8fafc;
+    font-size: 1.6rem;
+    font-weight: 700;
+}
+.fill-details-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.fill-details-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.95rem 1rem;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    text-decoration: none;
+    color: inherit;
+}
+.fill-details-row:hover {
+    border-color: #1f6feb;
+}
+.fill-details-name {
+    color: #f8fafc;
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+.fill-details-missing {
+    color: #fde68a;
+    font-size: 0.92rem;
+}
+</style>
+{% endblock %}
