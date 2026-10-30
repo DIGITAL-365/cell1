@@ -84,6 +84,16 @@
             </div>
             <div class="info-item">
                 <div class="info-icon">
+                    <i class="fas fa-church"></i>
+                </div>
+                <div class="info-content">
+                    <span class="info-label">MINISTRY</span>
+                    <span class="info-value">{{ user.ministry_label or 'Not assigned' }}</span>
+                </div>
+            </div>
+            {% if user.show_zone_sector %}
+            <div class="info-item">
+                <div class="info-icon">
                     <i class="fas fa-map-marker-alt"></i>
                 </div>
                 <div class="info-content">
@@ -91,6 +101,7 @@
                     <span class="info-value">{{ user.zone or 'Not Assigned' }}</span>
                 </div>
             </div>
+            {% endif %}
             <div class="info-item">
                 <div class="info-icon">
                     <i class="fas fa-user-tie"></i>
@@ -100,37 +111,15 @@
                     <span class="info-value">{{ user.current_role or 'Cell Member' }}</span>
                 </div>
             </div>
-            {% if not user.is_deputy %}
-            <div class="info-item cell-category-item">
-                <div class="info-icon">
-                    <i class="fas fa-layer-group"></i>
-                </div>
-                <div class="info-content info-content--stacked">
-                    <span class="info-label">CELL CATEGORY (TUTORIALS)</span>
-                    <form method="post" action="{{ url_for('main.profile') }}" class="cell-category-form">
-                        <input type="hidden" name="form_action" value="cell_category">
-                        <select name="cell_category" class="cell-category-select" aria-label="Cell category">
-                            <option value="" {% if not user.cell_category %}selected{% endif %}>Select category…</option>
-                            <option value="youth" {% if user.cell_category == 'youth' %}selected{% endif %}>Youth</option>
-                            <option value="young adult" {% if user.cell_category == 'young adult' %}selected{% endif %}>Young Adult</option>
-                            <option value="adult" {% if user.cell_category == 'adult' %}selected{% endif %}>Adult</option>
-                        </select>
-                        <button type="submit" class="cell-category-save">Save</button>
-                    </form>
-                    <span class="info-hint">Matches tutorial content for your cell group.</span>
-                </div>
-            </div>
-            {% else %}
             <div class="info-item">
                 <div class="info-icon">
                     <i class="fas fa-layer-group"></i>
                 </div>
                 <div class="info-content">
-                    <span class="info-label">CELL CATEGORY (LEADER)</span>
-                    <span class="info-value">{{ user.cell_category or 'Not set' }}</span>
+                    <span class="info-label">CELL CATEGORY</span>
+                    <span class="info-value">{{ user.cell_category_label or 'Not set' }}</span>
                 </div>
             </div>
-            {% endif %}
         </div>
     </div>
 

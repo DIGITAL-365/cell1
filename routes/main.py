@@ -29,6 +29,16 @@ from utils.attendance_leader_self import (
     present_count_for_operated_totals,
 )
 from utils.attendance_roster import on_roster_for_meeting, utc_now_iso
+from utils.leader_profile import (
+    MARITAL_STATUS_OPTIONS,
+    canonical_marital_status,
+    collect_leader_profile_update,
+    leader_category_label,
+    leader_name_parts,
+    profile_field_gaps,
+    profile_missing_labels,
+    sector_for_zone,
+)
 from utils.member_gaps import (
     ALLOWED_MEMBER_CELL_CATEGORIES,
     CELL_CATEGORY_LABELS,
@@ -886,11 +896,14 @@ def redirect_deputy_to_attendance():
     return None
 
 
-LEADER_PROFILE_LOCATION_SELECT = 'address,district,province,date_of_birth'
+LEADER_PROFILE_LOCATION_SELECT = (
+    'id,name,phone_number,email,role_id,cell_category,branch_id,country,'
+    'address,district,province,date_of_birth,marital_status,zone_id,sector_number'
+)
 
 
 def load_leader_location_row(leader_id):
-    """Read leader location/DOB columns from users. Empty dict if missing or columns absent."""
+    """Read the leader account fields used by the profile gate. Empty dict on failure."""
     if not supabase or not leader_id:
         return {}
     try:
@@ -902,10 +915,26 @@ def load_leader_location_row(leader_id):
             .execute()
         )
         if res.data and len(res.data) > 0:
-            return res.data[0] or {}
+            row = dict(res.data[0] or {})
+            branch = branch_record_for_id(row.get('branch_id'))
+            row['branch_name'] = branch.get('name') or ''
+            row['ministry_label'] = ministry_display(branch.get('ministry'))
+            return row
     except Exception as e:
         print(f"load_leader_location_row failed: {e}")
     return {}
+
+
+def leader_has_incomplete_profile(leader_id):
+    """True when this leader still has to fill the profile before the app opens."""
+    try:
+        row = load_leader_location_row(leader_id)
+        if not row or not row.get('id'):
+            return False
+        return bool(profile_missing_labels(row))
+    except Exception as e:
+        print(f"leader profile gate skipped: {e}")
+        return False
 
 
 def set_profile_incomplete_flag(leader_id=None, row=None):
@@ -1937,6 +1966,116 @@ def index():
             flash('Error loading dashboard', 'error')
             return redirect(url_for('auth.login'))
     return redirect(url_for('auth.login'))
+def _leader_gate_display(leader_id, posted=None):
+    """Values for the blocking leader form. Posted values win after a failed save."""
+    row = load_leader_location_row(leader_id)
+    posted = posted or {}
+    first_name, last_name = leader_name_parts(row.get('name'))
+    branch_name = row.get('branch_name') or ''
+    zone_required = is_miracle_dome_branch(branch_name)
+    zones = load_zones() if zone_required else []
+    address = posted.get('address', row.get('address') or '')
+    district_raw = posted.get('district', row.get('district') or '')
+    canonical_district = normalize_district(district_raw) or ''
+    province = province_for_district(canonical_district) or ''
+    dob = posted.get('date_of_birth', format_dob_for_input(row.get('date_of_birth')))
+    marital = canonical_marital_status(posted.get('marital_status', row.get('marital_status')))
+    country_raw = posted.get('country', row.get('country') or '')
+    email = posted.get('email', row.get('email') or '')
+    if 'zone_id' in posted:
+        zone_id = posted.get('zone_id') or ''
+    else:
+        zone_id = '' if row.get('zone_id') in (None, '') else str(row.get('zone_id'))
+    sector = None
+    if zone_required and zone_id not in (None, ''):
+        sector = sector_for_zone(zone_id, zones)
+    if sector is None and 'zone_id' not in posted and row.get('sector_number') is not None:
+        stored_sector = row.get('sector_number')
+        if str(stored_sector).strip() != '':
+            sector = stored_sector
+    age_value = ''
+    try:
+        age_value = age_from_dob(dob, today=app_today())
+        if age_value is None:
+            age_value = ''
+    except ValueError:
+        age_value = ''
+    return {
+        'first_name': first_name,
+        'last_name': last_name,
+        'phone_number': row.get('phone_number') or session.get('user', {}).get('mobile') or '',
+        'role_label': 'Cell Leader',
+        'cell_category_label': leader_category_label(row.get('cell_category')),
+        'branch_name': branch_name,
+        'ministry_label': row.get('ministry_label') or '',
+        'address': address or '',
+        'selected_district': canonical_district,
+        'selected_province': province,
+        'date_of_birth': dob or '',
+        'age_value': age_value,
+        'marital_status': marital,
+        'country_options': member_country_options(country_raw),
+        'selected_country': selected_member_country(country_raw),
+        'email': email or '',
+        'zone_required': zone_required,
+        'zones': zones,
+        'selected_zone_id': '' if zone_id in (None, '') else str(zone_id),
+        'selected_sector': sector,
+        'field_gaps': profile_field_gaps(
+            address=address,
+            district=canonical_district,
+            province=province,
+            date_of_birth=dob,
+            marital_status=marital,
+            email=email,
+            zone_required=zone_required,
+            zone_id=zone_id,
+            sector_number=sector,
+        ),
+        'districts': DISTRICT_LIST,
+        'marital_options': MARITAL_STATUS_OPTIONS,
+        'today_iso': app_today().isoformat(),
+    }
+
+
+@main_bp.route('/fill-leader-profile', methods=['GET', 'POST'])
+def fill_leader_profile():
+    """Whole-app screen until this leader has filled their own required details."""
+    if 'user' not in session:
+        return redirect(url_for('auth.login'))
+    if session.get('user', {}).get('is_deputy'):
+        return redirect(url_for('main.meeting_dates'))
+    leader_id = get_effective_leader_id()
+    if request.method == 'POST':
+        stored = load_leader_location_row(leader_id)
+        zone_required = is_miracle_dome_branch(stored.get('branch_name'))
+        errors, payload = collect_leader_profile_update(
+            request.form,
+            branch_name=stored.get('branch_name') or '',
+            zones=load_zones() if zone_required else [],
+            today=app_today(),
+        )
+        if errors:
+            view = _leader_gate_display(leader_id, posted=request.form)
+            view['form_errors'] = errors
+            return render_template('main/fill_leader_profile.html', user=session['user'], **view)
+        try:
+            supabase.table('users').update(payload).eq('id', leader_id).execute()
+        except Exception as e:
+            print(f"Error saving leader profile gate: {e}")
+            view = _leader_gate_display(leader_id, posted=request.form)
+            view['form_errors'] = {'general': 'Could not save your details. Please try again.'}
+            return render_template('main/fill_leader_profile.html', user=session['user'], **view)
+        set_profile_incomplete_flag(leader_id)
+        flash('Your details are saved', 'success')
+        return redirect(url_for('main.index'))
+    if not leader_has_incomplete_profile(leader_id):
+        return redirect(url_for('main.index'))
+    view = _leader_gate_display(leader_id)
+    view['form_errors'] = {}
+    return render_template('main/fill_leader_profile.html', user=session['user'], **view)
+
+
 @main_bp.route('/profile', methods=['GET', 'POST'])
 def profile():
     if 'user' not in session:
@@ -1951,20 +2090,21 @@ def profile():
             flash('Only the cell leader can update profile details.', 'error')
             return redirect(url_for('main.profile'))
 
-        action = (request.form.get('form_action') or 'cell_category').strip()
+        action = (request.form.get('form_action') or '').strip()
+        if action == 'cell_category':
+            flash('Cell category cannot be changed here.', 'error')
+            return redirect(url_for('main.profile'))
         if action == 'location':
-            try:
-                payload = leader_profile_write_payload(
-                    address=request.form.get('address'),
-                    district=request.form.get('district'),
-                    date_of_birth=request.form.get('date_of_birth'),
-                    today=app_today(),
-                )
-            except ValueError as ve:
-                flash(str(ve), 'error')
-                return redirect(url_for('main.profile'))
-            if not payload:
-                flash('Enter address, district, or date of birth to save.', 'error')
+            stored = load_leader_location_row(leader_id)
+            zone_required = is_miracle_dome_branch(stored.get('branch_name'))
+            errors, payload = collect_leader_profile_update(
+                request.form,
+                branch_name=stored.get('branch_name') or '',
+                zones=load_zones() if zone_required else [],
+                today=app_today(),
+            )
+            if errors:
+                flash(next(iter(errors.values())), 'error')
                 return redirect(url_for('main.profile'))
             try:
                 supabase.table('users').update(payload).eq('id', leader_id).execute()
@@ -1974,19 +2114,6 @@ def profile():
                 print(f"Error updating leader location profile: {e}")
                 flash('Could not save profile details.', 'error')
             return redirect(url_for('main.profile'))
-
-        cat = (request.form.get('cell_category') or '').strip()
-        allowed = {'youth', 'young adult', 'adult'}
-        if cat not in allowed:
-            flash('Please choose a valid cell category.', 'error')
-            return redirect(url_for('main.profile'))
-        try:
-            supabase.table('users').update({'cell_category': cat}).eq('id', leader_id).execute()
-            session['user']['cell_category'] = cat
-            flash('Cell category saved.', 'success')
-        except Exception as e:
-            print(f"Error updating cell_category: {e}")
-            flash('Could not save cell category.', 'error')
         return redirect(url_for('main.profile'))
 
     # Create a copy of user data to add calculated fields
@@ -2013,24 +2140,25 @@ def profile():
             except ValueError:
                 user_data['age'] = None
             user_data['cell_category'] = row.get('cell_category')
-            user_data['zone'] = row.get('zone_name') or row.get('zone')
-            # Branch: resolve branch_id to branch name (branches table lookup)
-            branch_id = row.get('branch_id')
-            user_data['branch_name'] = None
-            if branch_id is not None:
-                try:
-                    branch_res = supabase.table('branches').select('name').eq('id', branch_id).limit(1).execute()
-                    if branch_res.data and len(branch_res.data) > 0 and branch_res.data[0].get('name'):
-                        user_data['branch_name'] = branch_res.data[0].get('name')
-                except Exception:
-                    pass
-            if row.get('zone_id') and not user_data.get('zone'):
+            user_data['cell_category_label'] = leader_category_label(row.get('cell_category'))
+            user_data['email'] = row.get('email') or user_data.get('email') or ''
+            user_data['marital_status'] = canonical_marital_status(row.get('marital_status'))
+            user_data['country'] = row.get('country') or ''
+            user_data['zone_id'] = row.get('zone_id')
+            user_data['sector_number'] = row.get('sector_number')
+            branch = branch_record_for_id(row.get('branch_id'))
+            user_data['branch_name'] = branch.get('name') or ''
+            user_data['ministry_label'] = ministry_display(branch.get('ministry'))
+            user_data['show_zone_sector'] = is_miracle_dome_branch(user_data['branch_name'])
+            user_data['zone'] = None
+            if user_data['show_zone_sector'] and row.get('zone_id'):
                 try:
                     zone_res = supabase.table('zones').select('name').eq('id', row['zone_id']).limit(1).execute()
                     if zone_res.data and len(zone_res.data) > 0:
                         user_data['zone'] = zone_res.data[0].get('name')
                 except Exception:
                     pass
+            row['branch_name'] = user_data['branch_name']
             set_profile_incomplete_flag(leader_id, row=row)
     except Exception as e:
         print(f"Error fetching user profile fields: {e}")
@@ -2039,6 +2167,12 @@ def profile():
     user_data.setdefault('province', '')
     user_data.setdefault('date_of_birth', '')
     user_data.setdefault('age', None)
+    user_data.setdefault('branch_name', '')
+    user_data.setdefault('ministry_label', '')
+    user_data.setdefault('show_zone_sector', False)
+    user_data.setdefault('cell_category_label', leader_category_label(user_data.get('cell_category')))
+    user_data.setdefault('marital_status', '')
+    user_data.setdefault('email', '')
     
     # Calculate member count
     try:
@@ -2083,12 +2217,20 @@ def profile():
         user_data['attendance_rate'] = 0
     
     template_name = f'main/profile{get_template_suffix()}.html'
+    zone_required = bool(user_data.get('show_zone_sector'))
     return render_template(
         template_name,
         user=user_data,
         districts=DISTRICT_LIST,
         profile_incomplete=bool(session.get('profile_incomplete')),
         today_iso=app_today().isoformat(),
+        marital_options=MARITAL_STATUS_OPTIONS,
+        country_options=member_country_options(user_data.get('country')),
+        selected_country=selected_member_country(user_data.get('country')),
+        zone_required=zone_required,
+        zones=load_zones() if zone_required else [],
+        selected_zone_id='' if user_data.get('zone_id') in (None, '') else str(user_data.get('zone_id')),
+        selected_sector=user_data.get('sector_number'),
     )
 
 

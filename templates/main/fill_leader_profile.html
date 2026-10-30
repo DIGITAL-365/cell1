@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Fill your details - CellApp{% endblock %}
+{% block body_class %}leader-profile-gate{% endblock %}
+
+{% macro leader_form() %}
+<div class="leader-gate">
+    <header class="leader-gate-head">
+        <div class="leader-gate-mark" aria-hidden="true"><i class="fas fa-id-card"></i></div>
+        <h1>Fill your details</h1>
+        <p>Save these details to open the app. Name, phone, role, cell category, and branch stay as they are.</p>
+    </header>
+
+    <section class="leader-card" aria-labelledby="account-heading">
+        <h2 id="account-heading">Your account</h2>
+        <div class="leader-readonly-grid">
+            <div>
+                <span>First name</span>
+                <strong>{{ first_name or 'Not set' }}</strong>
+            </div>
+            <div>
+                <span>Last name</span>
+                <strong>{{ last_name or 'Not set' }}</strong>
+            </div>
+            <div>
+                <span>Phone number</span>
+                <strong>{{ phone_number or 'Not set' }}</strong>
+            </div>
+            <div>
+                <span>Role</span>
+                <strong>{{ role_label or 'Cell Leader' }}</strong>
+            </div>
+            <div>
+                <span>Cell category</span>
+                <strong>{{ cell_category_label or 'Not set' }}</strong>
+            </div>
+            <div>
+                <span>Branch</span>
+                <strong>{{ branch_name or 'Not set' }}</strong>
+            </div>
+            <div class="leader-span">
+                <span>Ministry</span>
+                <strong>{{ ministry_label or 'Not assigned' }}</strong>
+            </div>
+        </div>
+    </section>
+
+    <form id="leaderGateForm" method="post" action="{{ url_for('main.fill_leader_profile') }}" novalidate>
+        {% if form_errors and form_errors.general %}
+        <p class="leader-banner">{{ form_errors.general }}</p>
+        {% endif %}
+
+        <section class="leader-card">
+            <h2>Details to complete</h2>
+
+            <label for="leader_country">Country</label>
+            <select id="leader_country" name="country">
+                {% for country_name in country_options or ['Sri Lanka'] %}
+                <option value="{{ country_name }}" {{ 'selected' if selected_country == country_name else '' }}>{{ country_name }}</option>
+                {% endfor %}
+            </select>
+            <p class="leader-hint">Sri Lanka is selected when no country is stored.</p>
+
+            <label for="leader_address">Address <em>*</em></label>
+            <textarea id="leader_address" name="address" rows="3" maxlength="500" placeholder="Street, town, or village" class="{% if 'address' in field_gaps %}field-missing{% endif %}">{{ address or '' }}</textarea>
+            {% if form_errors and form_errors.address %}<p class="leader-error">{{ form_errors.address }}</p>{% endif %}
+
+            <label for="leader_district">District <em>*</em></label>
+            <select id="leader_district" name="district" class="{% if 'district' in field_gaps %}field-missing{% endif %}">
+                <option value="">Select district</option>
+                {% for d in districts or [] %}
+                <option value="{{ d.district }}" data-province="{{ d.province }}" {{ 'selected' if selected_district == d.district else '' }}>{{ d.district }}</option>
+                {% endfor %}
+            </select>
+            {% if form_errors and form_errors.district %}<p class="leader-error">{{ form_errors.district }}</p>{% endif %}
+
+            <label for="leader_province">Province <em>*</em></label>
+            <input id="leader_province" name="province" type="text" readonly tabindex="-1" value="{{ selected_province or '' }}" placeholder="Filled from district" class="{% if 'province' in field_gaps %}field-missing{% endif %}">
+            <p class="leader-hint">Filled from the district.</p>
+
+            <div class="leader-pair">
+                <div>
+                    <label for="leader_dob">Date of birth <em>*</em></label>
+                    <input id="leader_dob" name="date_of_birth" type="date" value="{{ date_of_birth or '' }}" max="{{ today_iso or '' }}" class="{% if 'date_of_birth' in field_gaps %}field-missing{% endif %}">
+                    {% if form_errors and form_errors.date_of_birth %}<p class="leader-error">{{ form_errors.date_of_birth }}</p>{% endif %}
+                </div>
+                <div>
+                    <label for="leader_age">Age</label>
+                    <input id="leader_age" type="text" readonly tabindex="-1" value="{{ age_value if age_value is not none else '' }}" placeholder="From date of birth">
+                    <p class="leader-hint">Calculated from the date of birth.</p>
+                </div>
+            </div>
+
+            <label for="leader_marital">Marital status <em>*</em></label>
+            <select id="leader_marital" name="marital_status" class="{% if 'marital_status' in field_gaps %}field-missing{% endif %}">
+                <option value="">Select marital status</option>
+                {% for status in marital_options or [] %}
+                <option value="{{ status }}" {{ 'selected' if marital_status == status else '' }}>{{ status }}</option>
+                {% endfor %}
+            </select>
+            {% if form_errors and form_errors.marital_status %}<p class="leader-error">{{ form_errors.marital_status }}</p>{% endif %}
+
+            <label for="leader_email">Email</label>
+            <input id="leader_email" name="email" type="email" inputmode="email" autocomplete="email" value="{{ email or '' }}" placeholder="Optional" class="{% if 'email' in field_gaps %}field-missing{% endif %}">
+            <p class="leader-hint">Optional.</p>
+            {% if form_errors and form_errors.email %}<p class="leader-error">{{ form_errors.email }}</p>{% endif %}
+
+            {% if zone_required %}
+            <label for="leader_zone">Zone <em>*</em></label>
+            <select id="leader_zone" name="zone_id" data-zone-required="1" class="{% if 'zone_id' in field_gaps %}field-missing{% endif %}">
+                <option value="">Select zone</option>
+                {% for zone in zones or [] %}
+                <option value="{{ zone.id }}" data-sector="{{ zone.sector_number if zone.sector_number is not none else '' }}" {{ 'selected' if selected_zone_id == zone.id|string else '' }}>
+                    {{ zone.name if zone.name else 'Zone ' ~ zone.id|string }}
+                </option>
+                {% endfor %}
+            </select>
+            <p class="leader-hint">Required for Miracle Dome.</p>
+            {% if form_errors and form_errors.zone_id %}<p class="leader-error">{{ form_errors.zone_id }}</p>{% endif %}
+
+            <label for="leader_sector">Sector <em>*</em></label>
+            <input id="leader_sector" name="sector_number" type="text" readonly tabindex="-1" value="{{ selected_sector if selected_sector is not none else '' }}" placeholder="Filled from the zone" class="{% if 'sector_number' in field_gaps %}field-missing{% endif %}">
+            <p class="leader-hint">Copied from the selected zone.</p>
+            {% endif %}
+        </section>
+
+        <div class="leader-save-bar">
+            <button type="submit" id="leaderSaveBtn">Save and continue</button>
+        </div>
+    </form>
+</div>
+{% endmacro %}
+
+{% block mobile_content %}{{ leader_form() }}{% endblock %}
+{% block desktop_content %}{{ leader_form() }}{% endblock %}
+{% block mobile_nav %}{% endblock %}
+{% block desktop_nav %}{% endblock %}
+
+{% block extra_css %}
+<style>
+body.leader-profile-gate .mobile-nav,
+body.leader-profile-gate .desktop-nav { display: none !important; }
+body.leader-profile-gate { background: #0d1117; }
+.leader-gate {
+    max-width: 440px;
+    margin: 0 auto;
+    padding: 1.25rem 1rem 6.5rem;
+    color: #e6edf3;
+}
+.leader-gate-head { text-align: center; margin-bottom: 1.25rem; }
+.leader-gate-mark {
+    width: 56px; height: 56px; margin: 0 auto 0.75rem;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: #1f6feb; color: #fff; font-size: 1.35rem;
+}
+.leader-gate h1 { margin: 0 0 0.4rem; font-size: 1.55rem; font-weight: 700; color: #f8fafc; }
+.leader-gate-head p { margin: 0; color: #9aa4b2; font-size: 0.95rem; line-height: 1.45; }
+.leader-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 16px;
+    padding: 1rem;
+    margin-bottom: 0.9rem;
+}
+.leader-card h2 { margin: 0 0 0.85rem; font-size: 0.95rem; letter-spacing: 0.02em; color: #f8fafc; }
+.leader-readonly-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.leader-readonly-grid .leader-span { grid-column: 1 / -1; }
+.leader-readonly-grid span { display: block; color: #8b949e; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.leader-readonly-grid strong { display: block; margin-top: 0.15rem; color: #f0f6fc; font-size: 1rem; font-weight: 650; word-break: break-word; }
+.leader-card label { display: block; margin: 0.85rem 0 0.35rem; color: #c9d1d9; font-weight: 650; font-size: 0.92rem; }
+.leader-card label em { color: #f85149; font-style: normal; }
+.leader-card input, .leader-card select, .leader-card textarea {
+    width: 100%; box-sizing: border-box;
+    min-height: 48px; padding: 0.7rem 0.85rem;
+    border: 2px solid #30363d; border-radius: 12px;
+    background: #0d1117; color: #f0f6fc;
+    font-size: 16px;
+}
+.leader-card textarea { min-height: 96px; resize: vertical; }
+.leader-card input[readonly] { background: #12181f; color: #9aa4b2; }
+.leader-card input.field-missing, .leader-card select.field-missing, .leader-card textarea.field-missing {
+    border-color: #f85149 !important;
+}
+.leader-hint { margin: 0.3rem 0 0; color: #8b949e; font-size: 0.8rem; }
+.leader-error, .leader-banner { margin: 0.35rem 0 0; color: #ffb4ab; font-size: 0.85rem; }
+.leader-banner { background: rgba(248, 81, 73, 0.12); border-radius: 10px; padding: 0.7rem 0.8rem; }
+.leader-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.leader-save-bar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+    background: rgba(13, 17, 23, 0.94);
+    border-top: 1px solid #30363d;
+}
+.leader-save-bar button {
+    width: min(440px, 100%); margin: 0 auto; display: block;
+    min-height: 52px; border: 0; border-radius: 14px;
+    background: #1f6feb; color: #fff; font-size: 1.05rem; font-weight: 700;
+}
+@media (min-width: 800px) {
+    .leader-gate { padding-top: 2rem; }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('leaderGateForm');
+    const district = document.getElementById('leader_district');
+    const province = document.getElementById('leader_province');
+    const dob = document.getElementById('leader_dob');
+    const age = document.getElementById('leader_age');
+    const zone = document.getElementById('leader_zone');
+    const sector = document.getElementById('leader_sector');
+
+    function syncProvince() {
+        if (!district || !province) return;
+        const option = district.options[district.selectedIndex];
+        province.value = option ? (option.getAttribute('data-province') || '') : '';
+    }
+    function syncAge() {
+        if (!dob || !age) return;
+        if (!dob.value) { age.value = ''; return; }
+        const born = new Date(dob.value + 'T00:00:00');
+        if (Number.isNaN(born.getTime())) { age.value = ''; return; }
+        const today = new Date();
+        let years = today.getFullYear() - born.getFullYear();
+        if (today.getMonth() < born.getMonth() || (today.getMonth() === born.getMonth() && today.getDate() < born.getDate())) years -= 1;
+        age.value = years >= 0 ? String(years) : '';
+    }
+    function syncSector() {
+        if (!zone || !sector) return;
+        const option = zone.options[zone.selectedIndex];
+        const value = option ? option.getAttribute('data-sector') : '';
+        sector.value = value || '';
+    }
+    function mark(el, missing) {
+        if (!el) return;
+        el.classList.toggle('field-missing', !!missing);
+    }
+    function refresh() {
+        const address = document.getElementById('leader_address');
+        const marital = document.getElementById('leader_marital');
+        const email = document.getElementById('leader_email');
+        mark(address, !address || !address.value.trim());
+        mark(district, !district || !district.value);
+        mark(province, !province || !province.value.trim());
+        mark(dob, !dob || !dob.value);
+        mark(marital, !marital || !marital.value);
+        const emailOk = !email || !email.value.trim() || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.trim());
+        mark(email, !emailOk);
+        if (zone && zone.getAttribute('data-zone-required') === '1') {
+            mark(zone, !zone.value);
+            mark(sector, !sector || !String(sector.value).trim());
+        }
+    }
+    if (district) { district.addEventListener('change', function () { syncProvince(); refresh(); }); syncProvince(); }
+    if (dob) { dob.addEventListener('change', function () { syncAge(); refresh(); }); syncAge(); }
+    if (zone) { zone.addEventListener('change', function () { syncSector(); refresh(); }); if (zone.value) syncSector(); }
+    if (form) {
+        form.addEventListener('input', refresh);
+        form.addEventListener('change', refresh);
+        form.addEventListener('submit', function (e) {
+            refresh();
+            const marital = document.getElementById('leader_marital');
+            if (!document.getElementById('leader_address').value.trim()) { e.preventDefault(); alert('Address is required.'); return; }
+            if (!district.value) { e.preventDefault(); alert('Pick a district from the list.'); return; }
+            if (!dob.value) { e.preventDefault(); alert('Date of birth is required.'); return; }
+            if (!marital.value) { e.preventDefault(); alert('Marital status is required.'); return; }
+            if (zone && zone.getAttribute('data-zone-required') === '1' && !zone.value) { e.preventDefault(); alert('Please select a zone (required for Miracle Dome branch).'); return; }
+        });
+    }
+    refresh();
+});
+</script>
+{% endblock %}
