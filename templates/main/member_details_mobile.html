@@ -98,6 +98,7 @@
                 </div>
             </div>
             
+            {% if member.show_zone_sector %}
             <div class="detail-item">
                 <div class="detail-icon">
                     <i class="fas fa-map-marker-alt"></i>
@@ -114,9 +115,10 @@
                 </div>
                 <div class="detail-content">
                     <div class="detail-label">Sector Number</div>
-                    <div class="detail-value">{{ member.sector_number or 'Not specified' }}</div>
+                    <div class="detail-value">{{ member.sector_number if member.sector_number is not none else 'Not specified' }}</div>
                 </div>
             </div>
+            {% endif %}
             
             <div class="detail-item">
                 <div class="detail-icon">
@@ -144,7 +146,7 @@
                 </div>
                 <div class="detail-content">
                     <div class="detail-label">Country</div>
-                    <div class="detail-value">{{ member.country or 'Not specified' }}</div>
+                    <div class="detail-value">{{ member.country_display or 'Sri Lanka' }}</div>
                 </div>
             </div>
             
@@ -164,7 +166,7 @@
                 </div>
                 <div class="detail-content">
                     <div class="detail-label">Cell Category</div>
-                    <div class="detail-value">{{ member.cell_category or 'Not specified' }}</div>
+                    <div class="detail-value">{{ member.cell_category_label or 'Not specified' }}</div>
                 </div>
             </div>
             

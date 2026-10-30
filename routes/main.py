@@ -212,12 +212,15 @@ def attach_branch_names(members):
         try:
             result = supabase.table('branches').select('id,name,ministry').in_('id', ids).execute()
             for row in result.data or []:
-                branches[row.get('id')] = row
+                branches[str(row.get('id'))] = row
         except Exception as branch_error:
             print(f"Error fetching member branch names: {branch_error}")
     for member in members:
-        branch = branches.get(member.get('branch_id')) or {}
-        member['branch_name'] = branch.get('name')
+        branch_id = member.get('branch_id')
+        branch = branches.get(str(branch_id)) or {}
+        if not branch.get('name') and branch_id not in (None, ''):
+            branch = branch_record_for_id(branch_id) or {}
+        member['branch_name'] = branch.get('name') or ''
         member['ministry_label'] = ministry_display(branch.get('ministry'))
     return members
 
@@ -3119,6 +3122,13 @@ def member_details(member_id):
             member['zone_name'] = zone_name
             attach_branch_names([member])
             apply_missing_member_fields([member])
+            category_key = str(member.get('cell_category') or '').strip().lower()
+            member['cell_category_label'] = CELL_CATEGORY_LABELS.get(
+                category_key,
+                member.get('cell_category') or '',
+            )
+            member['country_display'] = selected_member_country(member.get('country'))
+            member['show_zone_sector'] = is_miracle_dome_branch(member.get('branch_name'))
 
             delete_request_pending, flag_issue_pending, deputy_removal_pending = (
                 pending_flagged_state_for_member(supabase, leader_id, member_id)
