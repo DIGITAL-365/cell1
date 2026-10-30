@@ -67,6 +67,9 @@
                                     </div>
                                     {% endif %}
                                     <div class="member-info">{{ member.phone_number or 'No phone' }}</div>
+                                    {% if member.ministry_label %}
+                                    <div class="member-info">{{ member.ministry_label }}</div>
+                                    {% endif %}
                                     <div class="member-email">{{ member.email or 'No email' }}</div>
                                 </div>
                                 <div class="member-actions-inline">
