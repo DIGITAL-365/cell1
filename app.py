@@ -91,6 +91,7 @@ def create_app(config_name=None):
         if request.endpoint == 'main.member_form' and request.args.get('edit'):
             return None
         allowed = {
+            'main.fill_leader_profile',
             'main.fill_member_details',
             'main.update_member',
             'auth.logout',
