@@ -49,6 +49,7 @@ from utils.member_gaps import (
     is_miracle_dome_branch,
     join_member_name,
     member_country_options,
+    last_name_valid,
     name_part_valid,
     phone_digits,
     phone_number_valid,
@@ -456,8 +457,11 @@ def collect_member_form(leader_id, existing_member=None):
     last_name = (request.form.get('last_name') or '').strip()
     if not name_part_valid(first_name):
         form_errors['first_name'] = 'First name must be more than 3 letters, with no numbers or spaces.'
-    if not name_part_valid(last_name):
-        form_errors['last_name'] = 'Last name must be more than 3 letters, with no numbers or spaces.'
+    if not last_name_valid(last_name):
+        form_errors['last_name'] = (
+            'Last name must be more than 3 letters in total. '
+            'Each word must be at least 2 letters, with a single space between words.'
+        )
 
     age = (request.form.get('age') or '').strip()
     parsed_age = None

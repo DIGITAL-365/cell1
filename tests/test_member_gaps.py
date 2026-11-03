@@ -10,6 +10,7 @@ from utils.member_gaps import (
     incomplete_members_sorted,
     join_member_name,
     missing_member_fields,
+    last_name_valid,
     name_part_valid,
     phone_number_valid,
     selected_member_country,
@@ -38,6 +39,15 @@ def _complete(**overrides):
 class NamePartTests(unittest.TestCase):
     def test_join_lowercases_with_one_space(self):
         self.assertEqual(join_member_name('philip', 'Perera'), 'philip perera')
+        self.assertEqual(join_member_name('philip', 'De Silva'), 'philip de silva')
+
+    def test_surname_allows_de_silva_and_rejects_a_short_word(self):
+        self.assertTrue(last_name_valid('De Silva'))
+        self.assertTrue(last_name_valid('De Jonk'))
+        self.assertTrue(last_name_valid('Silva'))
+        self.assertFalse(last_name_valid('De'))
+        self.assertFalse(last_name_valid('A Silva'))
+        self.assertFalse(last_name_valid('De  Silva1'))
 
     def test_split_on_first_space_keeps_the_rest(self):
         self.assertEqual(split_member_name('Philip John Perera'), ('Philip', 'John Perera'))
@@ -78,10 +88,14 @@ class MissingMemberFieldsTests(unittest.TestCase):
             ['First name', 'Last name'],
         )
 
-    def test_short_name_and_space_in_last_name_are_gaps(self):
+    def test_short_first_name_is_a_gap_and_a_compound_surname_is_not(self):
         self.assertEqual(
             missing_member_fields(_complete(name='Ann Paul Perera')),
-            ['First name', 'Last name'],
+            ['First name'],
+        )
+        self.assertEqual(
+            missing_member_fields(_complete(name='Philip De')),
+            ['Last name'],
         )
 
     def test_single_word_name_is_missing_last_name(self):

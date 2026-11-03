@@ -50,7 +50,7 @@
                        value="{{ last_name or '' }}"
                        class="{% if 'last_name' in field_gaps %}field-missing{% endif %}"
                style="width: 100%; padding: {{ '10px 14px' if is_mobile else '12px 16px' }}; border: 2px solid #30363D; border-radius: 8px; background: #0D1117; color: #B1BAC4; font-size: {{ '15px' if is_mobile else '16px' }}; box-sizing: border-box;">
-        <div style="color: #6E7681; font-size: {{ '12px' if is_mobile else '14px' }}; margin-top: 4px;">More than 3 letters. No numbers or spaces. Saved as one lowercase name.</div>
+        <div style="color: #6E7681; font-size: {{ '12px' if is_mobile else '14px' }}; margin-top: 4px;">Each word at least 2 letters. More than 3 letters in total. Example: De Silva.</div>
                 {% if form_errors and 'last_name' in form_errors %}
             <div style="color: #F85149; font-size: {{ '12px' if is_mobile else '14px' }}; margin-top: 4px;">{{ form_errors.last_name }}</div>
                 {% endif %}

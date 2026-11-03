@@ -38,7 +38,7 @@
                     <i class="fas fa-user"></i>Last name <span class="required">*</span>
                 </label>
                 <input type="text" id="last_name" name="last_name" required maxlength="49" autocomplete="off" placeholder="Last name" value="{{ last_name or '' }}" class="form-input{% if 'last_name' in field_gaps %} field-missing{% endif %}">
-                <div class="form-help">More than 3 letters. No numbers or spaces. Saved as one lowercase name.</div>
+                <div class="form-help">Each word at least 2 letters. More than 3 letters in total. Example: De Silva.</div>
                 {% if form_errors and 'last_name' in form_errors %}
                     <div class="form-error">{{ form_errors.last_name }}</div>
                 {% endif %}

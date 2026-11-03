@@ -11,8 +11,9 @@ CELL_CATEGORY_LABELS = {
     'young adult': 'Young Adult',
     'adult': 'Adult',
 }
-# More than 3 letters. Digits and spaces are rejected. The stored name joins the two parts.
+# First name: more than 3 letters, no spaces. Surname may contain words such as "De Silva".
 _NAME_PART_RE = re.compile(r'^[A-Za-z]{4,49}$')
+_LAST_NAME_RE = re.compile(r'^(?:[A-Za-z]{2,})(?: [A-Za-z]{2,})*$')
 
 
 def is_miracle_dome_branch(branch_name):
@@ -34,16 +35,29 @@ def split_member_name(name):
     return first, last
 
 
+def _collapse_spaces(value):
+    return re.sub(r'\s+', ' ', str(value or '').strip())
+
+
 def join_member_name(first, last):
-    """One lowercase name with a single space between the two parts."""
-    first_part = str(first or '').strip().lower()
-    last_part = str(last or '').strip().lower()
+    """One lowercase name. The surname may contain a single space between words."""
+    first_part = _collapse_spaces(first).lower()
+    last_part = _collapse_spaces(last).lower()
     return f'{first_part} {last_part}'
 
 
 def name_part_valid(value):
-    """Letters only, longer than 3 characters, no digits and no spaces."""
+    """First name: letters only, longer than 3 characters, no digits and no spaces."""
     return bool(_NAME_PART_RE.fullmatch(str(value or '').strip()))
+
+
+def last_name_valid(value):
+    """Surname: each word at least 2 letters, more than 3 letters in total, one space between words."""
+    text = _collapse_spaces(value)
+    if not _LAST_NAME_RE.fullmatch(text):
+        return False
+    letters = text.replace(' ', '')
+    return 4 <= len(letters) <= 49
 
 
 def canonical_gender(value):
@@ -92,7 +106,7 @@ def missing_member_fields(member):
     first, last = split_member_name(member.get('name'))
     if not name_part_valid(first):
         missing.append('First name')
-    if not name_part_valid(last):
+    if not last_name_valid(last):
         missing.append('Last name')
     if not canonical_gender(member.get('gender')):
         missing.append('Gender')
@@ -141,7 +155,7 @@ def form_field_gaps(
     gaps = []
     if not name_part_valid(first_name):
         gaps.append('first_name')
-    if not name_part_valid(last_name):
+    if not last_name_valid(last_name):
         gaps.append('last_name')
     if not canonical_gender(gender):
         gaps.append('gender')
